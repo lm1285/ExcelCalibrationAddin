@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <RootNamespace>ExcelCalibrationAddin.LocalServer</RootNamespace>
+    <AssemblyName>ExcelCalibrationAddin.LocalServer</AssemblyName>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ExcelCalibrationAddin.Contracts\ExcelCalibrationAddin.Contracts.csproj" />
+    <ProjectReference Include="..\ExcelCalibrationAddin.Core\ExcelCalibrationAddin.Core.csproj" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <RootNamespace>ExcelCalibrationAddin.Core</RootNamespace>
+    <AssemblyName>ExcelCalibrationAddin.Core</AssemblyName>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ExcelCalibrationAddin.Contracts\ExcelCalibrationAddin.Contracts.csproj" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="System.Data.SQLite.Core" Version="1.0.118" />
+  </ItemGroup>
+</Project>

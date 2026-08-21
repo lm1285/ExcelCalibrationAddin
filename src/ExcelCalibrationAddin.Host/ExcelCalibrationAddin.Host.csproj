@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <RootNamespace>ExcelCalibrationAddin.Host</RootNamespace>
+    <AssemblyName>ExcelCalibrationAddin.Host</AssemblyName>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ExcelCalibrationAddin.Contracts\ExcelCalibrationAddin.Contracts.csproj" />
+    <ProjectReference Include="..\ExcelCalibrationAddin.Core\ExcelCalibrationAddin.Core.csproj" />
+  </ItemGroup>
+</Project>

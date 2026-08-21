@@ -1,0 +1,51 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ExcelCalibrationAddin.Contracts", "src\ExcelCalibrationAddin.Contracts\ExcelCalibrationAddin.Contracts.csproj", "{6AE76363-E9E9-4D9C-A343-0D89FBCEB353}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ExcelCalibrationAddin.Core", "src\ExcelCalibrationAddin.Core\ExcelCalibrationAddin.Core.csproj", "{F6647464-C3A8-4CF2-8F31-0F8C46FEA4C6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ExcelCalibrationAddin.Host", "src\ExcelCalibrationAddin.Host\ExcelCalibrationAddin.Host.csproj", "{69E4619F-8B3D-46E8-8FCE-1D1D0A57649D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ExcelCalibrationAddin.Vsto", "src\ExcelCalibrationAddin.Vsto\ExcelCalibrationAddin.Vsto.csproj", "{88C148D3-D10F-4895-9677-4D9EFA141CB5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ExcelCalibrationAddin.LocalServer", "src\ExcelCalibrationAddin.LocalServer\ExcelCalibrationAddin.LocalServer.csproj", "{5F76D3F1-10F4-4C3D-9C2A-E5BDDEAD5A6A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ExcelCalibrationAddin.Core.Tests", "tests\ExcelCalibrationAddin.Core.Tests\ExcelCalibrationAddin.Core.Tests.csproj", "{A2F4A7D5-0D36-4A63-B6EF-0A4F0B7B6E12}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6AE76363-E9E9-4D9C-A343-0D89FBCEB353}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6AE76363-E9E9-4D9C-A343-0D89FBCEB353}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6AE76363-E9E9-4D9C-A343-0D89FBCEB353}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6AE76363-E9E9-4D9C-A343-0D89FBCEB353}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F6647464-C3A8-4CF2-8F31-0F8C46FEA4C6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F6647464-C3A8-4CF2-8F31-0F8C46FEA4C6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F6647464-C3A8-4CF2-8F31-0F8C46FEA4C6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F6647464-C3A8-4CF2-8F31-0F8C46FEA4C6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{69E4619F-8B3D-46E8-8FCE-1D1D0A57649D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{69E4619F-8B3D-46E8-8FCE-1D1D0A57649D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{69E4619F-8B3D-46E8-8FCE-1D1D0A57649D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{69E4619F-8B3D-46E8-8FCE-1D1D0A57649D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{88C148D3-D10F-4895-9677-4D9EFA141CB5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{88C148D3-D10F-4895-9677-4D9EFA141CB5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{88C148D3-D10F-4895-9677-4D9EFA141CB5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{88C148D3-D10F-4895-9677-4D9EFA141CB5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5F76D3F1-10F4-4C3D-9C2A-E5BDDEAD5A6A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5F76D3F1-10F4-4C3D-9C2A-E5BDDEAD5A6A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5F76D3F1-10F4-4C3D-9C2A-E5BDDEAD5A6A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5F76D3F1-10F4-4C3D-9C2A-E5BDDEAD5A6A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A2F4A7D5-0D36-4A63-B6EF-0A4F0B7B6E12}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A2F4A7D5-0D36-4A63-B6EF-0A4F0B7B6E12}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A2F4A7D5-0D36-4A63-B6EF-0A4F0B7B6E12}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A2F4A7D5-0D36-4A63-B6EF-0A4F0B7B6E12}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

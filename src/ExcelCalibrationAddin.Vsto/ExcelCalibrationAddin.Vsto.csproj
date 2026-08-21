@@ -1,0 +1,244 @@
+<Project ToolsVersion="17.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <ProjectTypeGuids>{BAA0C2D2-18E2-41B9-852F-F413020CAA33};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{88C148D3-D10F-4895-9677-4D9EFA141CB5}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <NoStandardLibraries>false</NoStandardLibraries>
+    <RootNamespace>ExcelCalibrationAddin.Vsto</RootNamespace>
+    <AssemblyName>ExcelStandaloneComAddin.Vsto</AssemblyName>
+    <ApplicationVersion>2026.8.20.2</ApplicationVersion>
+    <LoadBehavior>3</LoadBehavior>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <DefineConstants>VSTO40;UseOfficeInterop</DefineConstants>
+    <BootstrapperEnabled>true</BootstrapperEnabled>
+    <BootstrapperComponentsLocation>HomeSite</BootstrapperComponentsLocation>
+    <ResolveComReferenceSilent>true</ResolveComReferenceSilent>
+    <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">17.0</VisualStudioVersion>
+    <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
+    <VSToolsPath Condition="!Exists('$(VSToolsPath)\OfficeTools\Microsoft.VisualStudio.Tools.Office.targets') And Exists('$(ProgramW6432)\Microsoft Visual Studio\2022\Community\MSBuild\Microsoft\VisualStudio\v$(VisualStudioVersion)\OfficeTools\Microsoft.VisualStudio.Tools.Office.targets')">$(ProgramW6432)\Microsoft Visual Studio\2022\Community\MSBuild\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
+    <VSToolsPath Condition="!Exists('$(VSToolsPath)\OfficeTools\Microsoft.VisualStudio.Tools.Office.targets') And Exists('$(ProgramW6432)\Microsoft Visual Studio\2022\Professional\MSBuild\Microsoft\VisualStudio\v$(VisualStudioVersion)\OfficeTools\Microsoft.VisualStudio.Tools.Office.targets')">$(ProgramW6432)\Microsoft Visual Studio\2022\Professional\MSBuild\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
+    <VSToolsPath Condition="!Exists('$(VSToolsPath)\OfficeTools\Microsoft.VisualStudio.Tools.Office.targets') And Exists('$(ProgramW6432)\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VisualStudio\v$(VisualStudioVersion)\OfficeTools\Microsoft.VisualStudio.Tools.Office.targets')">$(ProgramW6432)\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
+    <SignManifests>true</SignManifests>
+    <ManifestCertificateThumbprint>1AFAAA4AE219FA9841FFEF644845B551C286B3E2</ManifestCertificateThumbprint>
+  </PropertyGroup>
+  <ItemGroup>
+    <BootstrapperPackage Include="Microsoft.VSTORuntime.4.0">
+      <Visible>False</Visible>
+      <ProductName>Microsoft Visual Studio Tools for Office Runtime</ProductName>
+      <Install>true</Install>
+    </BootstrapperPackage>
+  </ItemGroup>
+  <PropertyGroup>
+    <OfficeApplication>Excel</OfficeApplication>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
+    <DefineConstants>$(DefineConstants);DEBUG;TRACE</DefineConstants>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
+    <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Accessibility" />
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="Microsoft.CSharp" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Microsoft.Office.Tools.v4.0.Framework, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>$(ProgramW6432)\Microsoft Visual Studio\2022\Community\Common7\IDE\ReferenceAssemblies\v4.0\Microsoft.Office.Tools.v4.0.Framework.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Microsoft.VisualStudio.Tools.Applications.Runtime, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>$(ProgramW6432)\Microsoft Visual Studio\2022\Community\Common7\IDE\ReferenceAssemblies\v4.0\Microsoft.VisualStudio.Tools.Applications.Runtime.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Microsoft.Office.Tools, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>$(ProgramW6432)\Microsoft Visual Studio\2022\Community\Common7\IDE\ReferenceAssemblies\v4.0\Microsoft.Office.Tools.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Microsoft.Office.Tools.Common, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>$(ProgramW6432)\Microsoft Visual Studio\2022\Community\Common7\IDE\ReferenceAssemblies\v4.0\Microsoft.Office.Tools.Common.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Microsoft.Office.Tools.Excel, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>$(ProgramW6432)\Microsoft Visual Studio\2022\Community\Common7\IDE\ReferenceAssemblies\v4.0\Microsoft.Office.Tools.Excel.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Microsoft.Office.Tools.Common.v4.0.Utilities, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>$(ProgramW6432)\Microsoft Visual Studio\2022\Community\Common7\IDE\ReferenceAssemblies\v4.0\Microsoft.Office.Tools.Common.v4.0.Utilities.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Office, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c">
+      <HintPath>$(MSBuildProgramFiles32)\Microsoft Visual Studio\Shared\Visual Studio Tools for Office\PIA\Office15\Office.dll</HintPath>
+      <Private>False</Private>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+    </Reference>
+    <Reference Include="Microsoft.Office.Interop.Excel, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c">
+      <HintPath>$(MSBuildProgramFiles32)\Microsoft Visual Studio\Shared\Visual Studio Tools for Office\PIA\Office15\Microsoft.Office.Interop.Excel.dll</HintPath>
+      <Private>False</Private>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+    </Reference>
+    <Reference Include="stdole, Version=7.0.3300.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a">
+      <HintPath>$(MSBuildProgramFiles32)\Microsoft.NET\Primary Interop Assemblies\stdole.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ExcelCalibrationAddin.Contracts\ExcelCalibrationAddin.Contracts.csproj">
+      <Project>{6AE76363-E9E9-4D9C-A343-0D89FBCEB353}</Project>
+      <Name>ExcelCalibrationAddin.Contracts</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\ExcelCalibrationAddin.Core\ExcelCalibrationAddin.Core.csproj">
+      <Project>{F6647464-C3A8-4CF2-8F31-0F8C46FEA4C6}</Project>
+      <Name>ExcelCalibrationAddin.Core</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\ExcelCalibrationAddin.Host\ExcelCalibrationAddin.Host.csproj">
+      <Project>{69E4619F-8B3D-46E8-8FCE-1D1D0A57649D}</Project>
+      <Name>ExcelCalibrationAddin.Host</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="AddinVersion.cs" />
+    <Compile Include="ExcelGenerationPerformanceScope.cs" />
+    <Compile Include="ExcelGenerationTransaction.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Properties\Resources.Designer.cs">
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Resources.resx</DependentUpon>
+    </Compile>
+    <Compile Include="Properties\Settings.Designer.cs">
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Settings.settings</DependentUpon>
+      <DesignTimeSharedInput>True</DesignTimeSharedInput>
+    </Compile>
+    <Compile Include="ThisAddIn.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="ThisAddIn.EventRouting.cs" />
+    <Compile Include="ThisAddIn.Commands.cs" />
+    <Compile Include="ThisAddIn.FacadeConfig.cs" />
+    <Compile Include="ThisAddIn.Generation.cs" />
+    <Compile Include="ThisAddIn.GenerationState.cs" />
+    <Compile Include="ThisAddIn.Progress.cs" />
+    <Compile Include="ThisAddIn.TaskPaneLifecycle.cs" />
+    <Compile Include="DailySyncScheduler.cs" />
+    <Compile Include="ExcelKeyboardShortcutHook.cs" />
+    <Compile Include="ThisAddIn.KeyboardShortcut.cs" />
+    <Compile Include="ThisAddIn.Designer.cs">
+      <DependentUpon>ThisAddIn.Designer.xml</DependentUpon>
+    </Compile>
+    <Compile Include="CalibrationRibbon.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="MultiAreaCopyPaste.cs" />
+    <Compile Include="RandomGenerationConfigurationDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="TemplateRecognitionActionDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="TemplateCandidateActionDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="TemplateLibraryManagerDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="SampleDataSelectionDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="CalibrationRibbon.Designer.cs">
+      <DependentUpon>CalibrationRibbon.cs</DependentUpon>
+    </Compile>
+    <Compile Include="TaskPane\CalibrationTaskPaneControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="TaskPane\CalibrationTaskPaneControl.ItemActions.cs">
+      <DependentUpon>CalibrationTaskPaneControl.cs</DependentUpon>
+    </Compile>
+    <Compile Include="TaskPane\CalibrationTaskPaneControl.Layout.cs">
+      <DependentUpon>CalibrationTaskPaneControl.cs</DependentUpon>
+    </Compile>
+    <Compile Include="TaskPane\CalibrationTaskPaneControl.MappingCards.cs">
+      <DependentUpon>CalibrationTaskPaneControl.cs</DependentUpon>
+    </Compile>
+    <Compile Include="TaskPane\CalibrationTaskPaneControl.RangeFormatting.cs">
+      <DependentUpon>CalibrationTaskPaneControl.cs</DependentUpon>
+    </Compile>
+    <Compile Include="TaskPane\CalibrationTaskPaneControl.RuleState.cs">
+      <DependentUpon>CalibrationTaskPaneControl.cs</DependentUpon>
+    </Compile>
+    <Compile Include="TaskPane\CalibrationTaskPaneControl.Selection.cs">
+      <DependentUpon>CalibrationTaskPaneControl.cs</DependentUpon>
+    </Compile>
+    <Compile Include="TaskPane\CalibrationTaskPaneControl.StatusText.cs">
+      <DependentUpon>CalibrationTaskPaneControl.cs</DependentUpon>
+    </Compile>
+    <Compile Include="TaskPane\CalibrationTaskPaneControl.TemplatePrompts.cs">
+      <DependentUpon>CalibrationTaskPaneControl.cs</DependentUpon>
+    </Compile>
+    <Compile Include="TaskPane\TaskPaneModelCloner.cs" />
+    <Compile Include="TaskPane\CalibrationTaskPaneControl.Designer.cs">
+      <DependentUpon>CalibrationTaskPaneControl.cs</DependentUpon>
+    </Compile>
+    <EmbeddedResource Include="TaskPane\CalibrationTaskPaneControl.resx">
+      <DependentUpon>CalibrationTaskPaneControl.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Properties\Resources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
+      <SubType>Designer</SubType>
+    </EmbeddedResource>
+    <Content Include="..\ExcelCalibrationAddin.Host\bin\$(Configuration)\net48\x86\SQLite.Interop.dll">
+      <Link>x86\SQLite.Interop.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\ExcelCalibrationAddin.Host\bin\$(Configuration)\net48\x64\SQLite.Interop.dll">
+      <Link>x64\SQLite.Interop.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <None Include="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="Properties\Settings.settings">
+      <Generator>SettingsSingleFileGenerator</Generator>
+      <LastGenOutput>Settings.Designer.cs</LastGenOutput>
+    </None>
+    <None Include="ThisAddIn.Designer.xml">
+      <DependentUpon>ThisAddIn.cs</DependentUpon>
+    </None>
+    <AppDesigner Include="Properties\" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <Import Project="$(VSToolsPath)\OfficeTools\Microsoft.VisualStudio.Tools.Office.targets" Condition="'$(VSToolsPath)' != ''" />
+  <ProjectExtensions>
+    <VisualStudio>
+      <FlavorProperties GUID="{BAA0C2D2-18E2-41B9-852F-F413020CAA33}">
+        <ProjectProperties HostName="Excel" HostPackage="{29A7B9D7-A7F1-4328-8EF0-6B2D1A56B2C1}" OfficeVersion="16.0" VstxVersion="4.0" ApplicationType="Excel" Language="cs" TemplatesPath="" DebugInfoExeName="#Software\Microsoft\Office\16.0\Excel\InstallRoot\Path#excel.exe" DebugInfoCommandLine="/x" AddItemTemplatesGuid="{51063C3A-E220-4D12-8922-BDA915ACD783}" />
+        <Host Name="Excel" GeneratedCodeNamespace="ExcelCalibrationAddin.Vsto" IconIndex="0">
+          <HostItem Name="ThisAddIn" Code="ThisAddIn.cs" CanonicalName="AddIn" CanActivate="false" IconIndex="1" Blueprint="ThisAddIn.Designer.xml" GeneratedCode="ThisAddIn.Designer.cs" />
+        </Host>
+      </FlavorProperties>
+    </VisualStudio>
+  </ProjectExtensions>
+</Project>

@@ -1,0 +1,41 @@
+# Build output
+bin/
+obj/
+out/
+publish/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.rsuser
+
+# Test and coverage output
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+
+# NuGet
+packages/
+*.nupkg
+
+# Temporary local artifacts
+.tmp-build/
+.tmp-decompile/
+.codex-spreadsheet-ph/
+.dotnet-cli/
+.edge-*-profile*/
+*.log
+*.db
+*.db-shm
+*.db-wal
+
+# OS/editor noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp

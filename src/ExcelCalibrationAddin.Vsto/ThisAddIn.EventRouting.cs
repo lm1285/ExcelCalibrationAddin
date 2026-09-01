@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -17,8 +18,10 @@ namespace ExcelCalibrationAddin.Vsto
         private void ThisAddIn_Startup(object sender, EventArgs e)
         {
             EnsureExcelUiSynchronizationContext();
+            _excelUiSynchronizationContext = SynchronizationContext.Current;
             AddinFileLogger.Configure("VSTO");
             _configPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
+            StartYingdaoAutomation();
             InitializeKeyboardShortcut();
             Application.WorkbookOpen += Application_WorkbookOpen;
             Application.WorkbookActivate += Application_WorkbookActivate;
@@ -85,7 +88,51 @@ namespace ExcelCalibrationAddin.Vsto
             Application.SheetChange -= Application_SheetChange;
             _facade?.Dispose();
             _facade = null;
+            _yingdaoAutomationServer?.Dispose();
+            _yingdaoAutomationServer = null;
+            try { if (_yingdaoAutomationBridge != null && !_yingdaoAutomationBridge.HasExited) _yingdaoAutomationBridge.Kill(); } catch { }
+            _yingdaoAutomationBridge = null;
             Trace.WriteLine("[VSTO] Add-in shutdown completed.");
+        }
+
+        private void StartYingdaoAutomation()
+        {
+            try
+            {
+                var configuration = new ConfigurationLoader().Load(_configPath);
+                if (configuration.Automation?.Enabled != true) return;
+                _yingdaoAutomationServer = new YingdaoAutomationServer(
+                    configuration.Automation.InternalPort,
+                    configuration.Automation.Token,
+                    () => ExecuteOnExcelUiAsync(async () => { await GenerateRandomNumbersCurrentWorkbookAsync(); return (object)new { ok = true, message = "随机数生成完成" }; }),
+                    () => ExecuteOnExcelUiAsync(() => Task.FromResult((object)new { ok = true, excelRunning = Application != null, workbookOpen = Application?.ActiveWorkbook != null })));
+                _yingdaoAutomationServer.Start();
+                var bridgePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ExcelCalibrationAddin.AutomationBridge.exe");
+                if (File.Exists(bridgePath))
+                {
+                    _yingdaoAutomationBridge = Process.Start(new ProcessStartInfo(bridgePath,
+                        "--public-port=" + configuration.Automation.Port + " --inner-port=" + configuration.Automation.InternalPort +
+                        " --token=\"" + (configuration.Automation.Token ?? string.Empty).Replace("\"", "\\\"") + "\"")
+                    { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetDirectoryName(bridgePath) });
+                }
+            }
+            catch (Exception ex) { Trace.WriteLine("[Yingdao] Startup failed: " + ex.Message); }
+        }
+
+        private Task<T> ExecuteOnExcelUiAsync<T>(Func<Task<T>> operation)
+        {
+            if (_excelUiSynchronizationContext == null || SynchronizationContext.Current == _excelUiSynchronizationContext)
+            {
+                return operation();
+            }
+
+            var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _excelUiSynchronizationContext.Post(async _ =>
+            {
+                try { completion.SetResult(await operation()); }
+                catch (Exception ex) { completion.SetException(ex); }
+            }, null);
+            return completion.Task;
         }
 
         private async void Application_WorkbookOpen(Excel.Workbook workbook)

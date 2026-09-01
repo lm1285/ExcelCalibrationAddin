@@ -5,12 +5,22 @@ namespace ExcelCalibrationAddin.Core.Models
         public BackendConfiguration Backend { get; set; } = new BackendConfiguration();
         public CacheConfiguration Cache { get; set; } = new CacheConfiguration();
         public GenerationConfiguration Generation { get; set; } = new GenerationConfiguration();
+        public AutomationConfiguration Automation { get; set; } = new AutomationConfiguration();
     }
 
     public sealed class BackendConfiguration
     {
         public string BaseUrl { get; set; } = "http://localhost:3002";
         public string TemplateApiPrefix { get; set; } = "/api/excel-templates";
+        public string AuthorizationToken { get; set; } = string.Empty;
+    }
+
+    public sealed class AutomationConfiguration
+    {
+        public bool Enabled { get; set; } = true;
+        public int Port { get; set; } = 30771;
+        public int InternalPort { get; set; } = 30772;
+        public string Token { get; set; } = string.Empty;
     }
 
     public sealed class CacheConfiguration

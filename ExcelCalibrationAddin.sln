@@ -12,6 +12,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ExcelCalibrationAddin.Vsto"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ExcelCalibrationAddin.LocalServer", "src\ExcelCalibrationAddin.LocalServer\ExcelCalibrationAddin.LocalServer.csproj", "{5F76D3F1-10F4-4C3D-9C2A-E5BDDEAD5A6A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ExcelCalibrationAddin.AutomationBridge", "src\ExcelCalibrationAddin.AutomationBridge\ExcelCalibrationAddin.AutomationBridge.csproj", "{7C6B52C1-420A-49B4-9C6E-E2A1D03A2E6F}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ExcelCalibrationAddin.Core.Tests", "tests\ExcelCalibrationAddin.Core.Tests\ExcelCalibrationAddin.Core.Tests.csproj", "{A2F4A7D5-0D36-4A63-B6EF-0A4F0B7B6E12}"
 EndProject
 Global
@@ -36,6 +38,10 @@ Global
 		{88C148D3-D10F-4895-9677-4D9EFA141CB5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{88C148D3-D10F-4895-9677-4D9EFA141CB5}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{88C148D3-D10F-4895-9677-4D9EFA141CB5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7C6B52C1-420A-49B4-9C6E-E2A1D03A2E6F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7C6B52C1-420A-49B4-9C6E-E2A1D03A2E6F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7C6B52C1-420A-49B4-9C6E-E2A1D03A2E6F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7C6B52C1-420A-49B4-9C6E-E2A1D03A2E6F}.Release|Any CPU.Build.0 = Release|Any CPU
 		{5F76D3F1-10F4-4C3D-9C2A-E5BDDEAD5A6A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{5F76D3F1-10F4-4C3D-9C2A-E5BDDEAD5A6A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5F76D3F1-10F4-4C3D-9C2A-E5BDDEAD5A6A}.Release|Any CPU.ActiveCfg = Release|Any CPU

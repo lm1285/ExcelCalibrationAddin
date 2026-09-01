@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using ExcelCalibrationAddin.Contracts;
 using ExcelCalibrationAddin.Core.Models;
@@ -40,6 +41,9 @@ namespace ExcelCalibrationAddin.Vsto
         private Task _startupTemplateSyncTask = Task.CompletedTask;
         private bool _isWritingGeneratedValues;
         private DailySyncScheduler _dailySyncScheduler;
+        private YingdaoAutomationServer _yingdaoAutomationServer;
+        private Process _yingdaoAutomationBridge;
+        private SynchronizationContext _excelUiSynchronizationContext;
 
         internal void ToggleTaskPane()
         {

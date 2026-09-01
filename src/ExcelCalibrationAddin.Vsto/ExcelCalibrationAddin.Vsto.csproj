@@ -60,6 +60,8 @@
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
     <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Web.Extensions" />
     <Reference Include="Microsoft.CSharp" />
   </ItemGroup>
   <ItemGroup>
@@ -117,11 +119,18 @@
       <Project>{69E4619F-8B3D-46E8-8FCE-1D1D0A57649D}</Project>
       <Name>ExcelCalibrationAddin.Host</Name>
     </ProjectReference>
+    <ProjectReference Include="..\ExcelCalibrationAddin.AutomationBridge\ExcelCalibrationAddin.AutomationBridge.csproj">
+      <Project>{7C6B52C1-420A-49B4-9C6E-E2A1D03A2E6F}</Project>
+      <Name>ExcelCalibrationAddin.AutomationBridge</Name>
+      <ReferenceOutputAssembly>False</ReferenceOutputAssembly>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AddinVersion.cs" />
     <Compile Include="ExcelGenerationPerformanceScope.cs" />
     <Compile Include="ExcelGenerationTransaction.cs" />
+    <Compile Include="ThisAddIn.ServiceConnection.cs" />
+    <Compile Include="YingdaoAutomationServer.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Properties\Resources.Designer.cs">
       <AutoGen>True</AutoGen>
@@ -215,6 +224,10 @@
     </Content>
     <Content Include="..\ExcelCalibrationAddin.Host\bin\$(Configuration)\net48\x64\SQLite.Interop.dll">
       <Link>x64\SQLite.Interop.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\ExcelCalibrationAddin.AutomationBridge\bin\$(Configuration)\net48\ExcelCalibrationAddin.AutomationBridge.exe">
+      <Link>ExcelCalibrationAddin.AutomationBridge.exe</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <None Include="appsettings.json">

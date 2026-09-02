@@ -17,11 +17,18 @@ namespace ExcelCalibrationAddin.Vsto
     {
         private void ThisAddIn_Startup(object sender, EventArgs e)
         {
+            // The production endpoint requires TLS 1.2 on .NET Framework.
+            System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
             EnsureExcelUiSynchronizationContext();
             _excelUiSynchronizationContext = SynchronizationContext.Current;
             AddinFileLogger.Configure("VSTO");
             _configPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
             StartYingdaoAutomation();
+            _serviceStatusTimer = new System.Threading.Timer(
+                _ => _ = RefreshServiceConnectionStatusAsync(),
+                null,
+                TimeSpan.Zero,
+                TimeSpan.FromSeconds(30));
             InitializeKeyboardShortcut();
             Application.WorkbookOpen += Application_WorkbookOpen;
             Application.WorkbookActivate += Application_WorkbookActivate;
@@ -92,6 +99,8 @@ namespace ExcelCalibrationAddin.Vsto
             _yingdaoAutomationServer = null;
             try { if (_yingdaoAutomationBridge != null && !_yingdaoAutomationBridge.HasExited) _yingdaoAutomationBridge.Kill(); } catch { }
             _yingdaoAutomationBridge = null;
+            _serviceStatusTimer?.Dispose();
+            _serviceStatusTimer = null;
             Trace.WriteLine("[VSTO] Add-in shutdown completed.");
         }
 
@@ -105,7 +114,7 @@ namespace ExcelCalibrationAddin.Vsto
                     configuration.Automation.InternalPort,
                     configuration.Automation.Token,
                     () => ExecuteOnExcelUiAsync(async () => { await GenerateRandomNumbersCurrentWorkbookAsync(); return (object)new { ok = true, message = "随机数生成完成" }; }),
-                    () => ExecuteOnExcelUiAsync(() => Task.FromResult((object)new { ok = true, excelRunning = Application != null, workbookOpen = Application?.ActiveWorkbook != null })));
+                    GetYingdaoAutomationStatusAsync);
                 _yingdaoAutomationServer.Start();
                 var bridgePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ExcelCalibrationAddin.AutomationBridge.exe");
                 if (File.Exists(bridgePath))
@@ -117,6 +126,40 @@ namespace ExcelCalibrationAddin.Vsto
                 }
             }
             catch (Exception ex) { Trace.WriteLine("[Yingdao] Startup failed: " + ex.Message); }
+        }
+
+        private Task<object> GetYingdaoAutomationStatusAsync()
+        {
+            return ExecuteOnExcelUiAsync<object>(() =>
+            {
+                var workbook = Application?.ActiveWorkbook as Excel.Workbook;
+                var workbookKey = ResolveWorkbookKey(workbook);
+                var state = _lastGenerationState;
+                var stateBelongsToWorkbook = workbook != null &&
+                    state != null &&
+                    string.Equals(_lastMatchedWorkbookKey, workbookKey, StringComparison.OrdinalIgnoreCase);
+                var canGenerate = stateBelongsToWorkbook && CanUseCachedGenerationState(workbookKey);
+                var templateMatched = stateBelongsToWorkbook && state.CanGenerate;
+
+                return Task.FromResult<object>(new YingdaoAutomationStatus
+                {
+                    Ok = true,
+                    AddinLoaded = _yingdaoAutomationServer != null && _yingdaoAutomationServer.IsListening,
+                    ExcelRunning = Application != null,
+                    WorkbookOpen = workbook != null,
+                    WorkbookName = SafeWorkbookName(workbook),
+                    TemplateMatched = templateMatched,
+                    CanGenerate = canGenerate,
+                    TemplateName = templateMatched ? (state.RemoteTemplateName ?? string.Empty) : string.Empty,
+                    ExactFingerprint = templateMatched ? (state.ExactFingerprint ?? string.Empty) : string.Empty,
+                    RuleCount = templateMatched ? (state.DraftRules?.Count ?? 0) : 0,
+                    Message = !ReferenceEquals(workbook, null) && !stateBelongsToWorkbook
+                        ? "正在等待模板匹配..."
+                        : !canGenerate && stateBelongsToWorkbook
+                            ? "当前工作簿未匹配到可生成模板。"
+                            : canGenerate ? "已就绪" : "正在等待 Excel 加载项..."
+                });
+            });
         }
 
         private Task<T> ExecuteOnExcelUiAsync<T>(Func<Task<T>> operation)

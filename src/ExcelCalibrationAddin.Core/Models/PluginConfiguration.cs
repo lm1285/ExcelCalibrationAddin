@@ -10,7 +10,7 @@ namespace ExcelCalibrationAddin.Core.Models
 
     public sealed class BackendConfiguration
     {
-        public string BaseUrl { get; set; } = "http://localhost:3002";
+        public string BaseUrl { get; set; } = "https://www.wzglpt.top";
         public string TemplateApiPrefix { get; set; } = "/api/excel-templates";
         public string AuthorizationToken { get; set; } = string.Empty;
     }

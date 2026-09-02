@@ -25,9 +25,16 @@ namespace ExcelCalibrationAddin.Vsto
             this.tab1 = Factory.CreateRibbonTab();
             this.group1 = Factory.CreateRibbonGroup();
             this.lblAddinVersion = Factory.CreateRibbonLabel();
+            this.boxServiceStatus = Factory.CreateRibbonBox();
+            this.lblCloudStatus = Factory.CreateRibbonLabel();
+            this.lblCloudAddress = Factory.CreateRibbonLabel();
+            this.lblCloudIp = Factory.CreateRibbonLabel();
+            this.lblCloudDatabase = Factory.CreateRibbonLabel();
+            this.lblLoginStatus = Factory.CreateRibbonLabel();
             this.btnQuickGenerate = Factory.CreateRibbonButton();
             this.btnRecognize = Factory.CreateRibbonButton();
             this.btnTemplateLibrary = Factory.CreateRibbonButton();
+            this.btnCloudLogin = Factory.CreateRibbonButton();
             this.btnTogglePane = Factory.CreateRibbonButton();
             this.btnSaveSampleData = Factory.CreateRibbonButton();
             this.btnViewSampleData = Factory.CreateRibbonButton();
@@ -48,14 +55,15 @@ namespace ExcelCalibrationAddin.Vsto
             this.btnDeleteMultiArea = Factory.CreateRibbonButton();
             this.tab1.SuspendLayout();
             this.group1.SuspendLayout();
+            this.boxServiceStatus.SuspendLayout();
             this.groupRandomConfig.SuspendLayout();
             this.boxRandomConfig.SuspendLayout();
             this.boxSingleUseOverride.SuspendLayout();
             this.groupAlarmValue.SuspendLayout();
             this.SuspendLayout();
-            // 
+            //
             // tab1
-            // 
+            //
             this.tab1.ControlId.ControlIdType = Microsoft.Office.Tools.Ribbon.RibbonControlIdType.Office;
             this.tab1.ControlId.OfficeId = "TabAddIns";
             this.tab1.Groups.Add(this.group1);
@@ -67,10 +75,11 @@ namespace ExcelCalibrationAddin.Vsto
             // 
             // group1
             // 
-            this.group1.Items.Add(this.lblAddinVersion);
+            this.group1.Items.Add(this.boxServiceStatus);
             this.group1.Items.Add(this.btnQuickGenerate);
             this.group1.Items.Add(this.btnRecognize);
             this.group1.Items.Add(this.btnTemplateLibrary);
+            this.group1.Items.Add(this.btnCloudLogin);
             this.group1.Items.Add(this.btnTogglePane);
             this.group1.Items.Add(this.btnSaveSampleData);
             this.group1.Items.Add(this.btnViewSampleData);
@@ -81,6 +90,30 @@ namespace ExcelCalibrationAddin.Vsto
             // 
             this.lblAddinVersion.Label = "版本 v2026.07.08.6";
             this.lblAddinVersion.Name = "lblAddinVersion";
+            //
+            // boxServiceStatus
+            //
+            this.boxServiceStatus.BoxStyle = Microsoft.Office.Tools.Ribbon.RibbonBoxStyle.Vertical;
+            this.boxServiceStatus.Items.Add(this.lblAddinVersion);
+            this.boxServiceStatus.Items.Add(this.lblCloudStatus);
+            this.boxServiceStatus.Items.Add(this.lblCloudAddress);
+            this.boxServiceStatus.Items.Add(this.lblCloudIp);
+            this.boxServiceStatus.Items.Add(this.lblCloudDatabase);
+            this.boxServiceStatus.Items.Add(this.lblLoginStatus);
+            this.boxServiceStatus.Name = "boxServiceStatus";
+            //
+            // service status labels
+            //
+            this.lblCloudStatus.Label = "云端：检测中...";
+            this.lblCloudStatus.Name = "lblCloudStatus";
+            this.lblCloudAddress.Label = "云端地址：";
+            this.lblCloudAddress.Name = "lblCloudAddress";
+            this.lblCloudIp.Label = "云端IP：检测中...";
+            this.lblCloudIp.Name = "lblCloudIp";
+            this.lblCloudDatabase.Label = "云数据库：检测中...";
+            this.lblCloudDatabase.Name = "lblCloudDatabase";
+            this.lblLoginStatus.Label = "登录状态：检测中...";
+            this.lblLoginStatus.Name = "lblLoginStatus";
             // 
             // btnQuickGenerate
             // 
@@ -113,9 +146,18 @@ namespace ExcelCalibrationAddin.Vsto
             this.btnTemplateLibrary.ShowImage = true;
             this.btnTemplateLibrary.SuperTip = "\u5728\u9876\u90e8\u680f\u7ef4\u62a4\u6a21\u677f\u72b6\u6001\uff0c\u8ba9\u5339\u914d\u72b6\u6001\u4e0e\u672c\u5730\u6a21\u677f\u72b6\u6001\u5f62\u6210\u95ed\u73af\u3002";
             this.btnTemplateLibrary.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.btnTemplateLibrary_Click);
-            // 
+            //
+            // btnCloudLogin
+            //
+            this.btnCloudLogin.Label = "云端登录";
+            this.btnCloudLogin.Name = "btnCloudLogin";
+            this.btnCloudLogin.OfficeImageId = "ContactPicture";
+            this.btnCloudLogin.ScreenTip = "登录 wzglpt.top 模板服务";
+            this.btnCloudLogin.ShowImage = true;
+            this.btnCloudLogin.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.btnCloudLogin_Click);
+            //
             // btnTogglePane
-            // 
+            //
             this.btnTogglePane.Label = "\u4fa7\u8fb9\u680f";
             this.btnTogglePane.Name = "btnTogglePane";
             this.btnTogglePane.OfficeImageId = "NavigationPane";
@@ -262,6 +304,8 @@ namespace ExcelCalibrationAddin.Vsto
             this.tab1.PerformLayout();
             this.group1.ResumeLayout(false);
             this.group1.PerformLayout();
+            this.boxServiceStatus.ResumeLayout(false);
+            this.boxServiceStatus.PerformLayout();
             this.groupRandomConfig.ResumeLayout(false);
             this.groupRandomConfig.PerformLayout();
             this.boxRandomConfig.ResumeLayout(false);
@@ -278,9 +322,16 @@ namespace ExcelCalibrationAddin.Vsto
         internal Microsoft.Office.Tools.Ribbon.RibbonTab tab1;
         internal Microsoft.Office.Tools.Ribbon.RibbonGroup group1;
         internal Microsoft.Office.Tools.Ribbon.RibbonLabel lblAddinVersion;
+        internal Microsoft.Office.Tools.Ribbon.RibbonBox boxServiceStatus;
+        internal Microsoft.Office.Tools.Ribbon.RibbonLabel lblCloudStatus;
+        internal Microsoft.Office.Tools.Ribbon.RibbonLabel lblCloudAddress;
+        internal Microsoft.Office.Tools.Ribbon.RibbonLabel lblCloudIp;
+        internal Microsoft.Office.Tools.Ribbon.RibbonLabel lblCloudDatabase;
+        internal Microsoft.Office.Tools.Ribbon.RibbonLabel lblLoginStatus;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton btnQuickGenerate;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton btnRecognize;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton btnTemplateLibrary;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton btnCloudLogin;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton btnTogglePane;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton btnSaveSampleData;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton btnViewSampleData;

@@ -93,6 +93,13 @@ namespace ExcelCalibrationAddin.AutomationBridge
                     return;
                 }
 
+                if (!IsAuthorized(context.Request))
+                {
+                    WriteJson(context.Response, HttpStatusCode.Unauthorized,
+                        "{\"ok\":false,\"error\":\"Invalid automation token.\"}");
+                    return;
+                }
+
                 var route = NormalizeRoute(context.Request.Url?.AbsolutePath);
                 if (context.Request.HttpMethod.Equals("GET", StringComparison.OrdinalIgnoreCase) && route == "/health")
                 {
@@ -186,9 +193,17 @@ namespace ExcelCalibrationAddin.AutomationBridge
         {
             try
             {
-                using (var response = await Client.GetAsync(InnerUrl("/health")).ConfigureAwait(false))
+                using (var request = new HttpRequestMessage(HttpMethod.Get, InnerUrl("/health")))
                 {
-                    return response.IsSuccessStatusCode;
+                    if (!string.IsNullOrWhiteSpace(_options.Token))
+                    {
+                        request.Headers.TryAddWithoutValidation("X-Excel-Calibration-Token", _options.Token);
+                    }
+
+                    using (var response = await Client.SendAsync(request).ConfigureAwait(false))
+                    {
+                        return response.IsSuccessStatusCode;
+                    }
                 }
             }
             catch
@@ -210,7 +225,9 @@ namespace ExcelCalibrationAddin.AutomationBridge
                         string.IsNullOrWhiteSpace(request.ContentType) ? "application/json" : request.ContentType);
                 }
 
-                var token = request.Headers["X-Excel-Calibration-Token"];
+                var token = string.IsNullOrWhiteSpace(request.Headers["X-Excel-Calibration-Token"])
+                    ? _options.Token
+                    : request.Headers["X-Excel-Calibration-Token"];
                 if (!string.IsNullOrWhiteSpace(token))
                 {
                     forward.Headers.TryAddWithoutValidation("X-Excel-Calibration-Token", token);
@@ -252,6 +269,12 @@ namespace ExcelCalibrationAddin.AutomationBridge
             return "http://127.0.0.1:" + _options.InnerPort + ApiPrefix + route;
         }
 
+        private static bool IsAuthorized(HttpListenerRequest request)
+        {
+            return string.IsNullOrWhiteSpace(_options.Token) ||
+                string.Equals(request.Headers["X-Excel-Calibration-Token"], _options.Token, StringComparison.Ordinal);
+        }
+
         private static void WriteJson(HttpListenerResponse response, HttpStatusCode status, string body)
         {
             try
@@ -291,6 +314,7 @@ namespace ExcelCalibrationAddin.AutomationBridge
         public int PublicPort { get; private set; } = 30771;
         public int InnerPort { get; private set; } = 30772;
         public int ExcelProcessId { get; private set; }
+        public string Token { get; private set; } = string.Empty;
 
         public static BridgeOptions Parse(string[] args)
         {
@@ -311,6 +335,10 @@ namespace ExcelCalibrationAddin.AutomationBridge
                 {
                     int.TryParse(argument.Substring(12), out var processId);
                     options.ExcelProcessId = processId;
+                }
+                else if (argument.StartsWith("--token=", StringComparison.OrdinalIgnoreCase))
+                {
+                    options.Token = argument.Substring(8).Trim().Trim('"');
                 }
             }
 

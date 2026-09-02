@@ -3,8 +3,11 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Web.Script.Serialization;
 using ExcelCalibrationAddin.Contracts;
 using ExcelCalibrationAddin.Core.Models;
 using ExcelCalibrationAddin.Core.Services;
@@ -19,6 +22,51 @@ namespace ExcelCalibrationAddin.Vsto
 {
     public partial class ThisAddIn
     {
+        internal async Task<bool> LoginToCloudAsync()
+        {
+            var configuration = new ConfigurationLoader().Load(_configPath);
+            using (var dialog = new CloudLoginDialog())
+            {
+                if (dialog.ShowDialog(GetExcelMainWindow()) != DialogResult.OK)
+                {
+                    return false;
+                }
+
+                var endpoint = configuration.Backend.BaseUrl.TrimEnd('/') + "/api/auth/login";
+                using (var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) })
+                using (var content = new StringContent(
+                    new JavaScriptSerializer().Serialize(new { username = dialog.Username, password = dialog.Password }),
+                    Encoding.UTF8,
+                    "application/json"))
+                using (var response = await client.PostAsync(endpoint, content).ConfigureAwait(true))
+                {
+                    var body = await response.Content.ReadAsStringAsync().ConfigureAwait(true);
+                    var payload = new JavaScriptSerializer().DeserializeObject(string.IsNullOrWhiteSpace(body) ? "{}" : body)
+                        as Dictionary<string, object> ?? new Dictionary<string, object>();
+                    var token = payload.ContainsKey("token") ? Convert.ToString(payload["token"]) : string.Empty;
+                    if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(token))
+                    {
+                        throw new InvalidOperationException(payload.ContainsKey("error") ? Convert.ToString(payload["error"]) : "云端登录失败。");
+                    }
+
+                    new CloudSessionStore().SaveToken(token);
+                    _facade?.Dispose();
+                    _facade = null;
+                    Application.StatusBar = "校准助手：已登录 wzglpt.top";
+                    _ = RefreshServiceConnectionStatusAsync();
+                    return true;
+                }
+            }
+        }
+
+        internal void LogoutFromCloud()
+        {
+            new CloudSessionStore().Clear();
+            _facade?.Dispose();
+            _facade = null;
+            Application.StatusBar = "校准助手：已退出云端登录";
+        }
+
         internal CellRange GetActiveSelectionRange()
         {
             try

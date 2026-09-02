@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
 using ExcelCalibrationAddin.Contracts;
@@ -14,11 +15,14 @@ namespace ExcelCalibrationAddin.Core.Services
         private readonly HttpClient _httpClient;
         private readonly string _apiPrefix;
 
-        public TemplateSyncClient(HttpClient httpClient, string apiPrefix)
+        public TemplateSyncClient(HttpClient httpClient, string apiPrefix, string authorizationToken = null)
         {
             _httpClient = httpClient;
             _apiPrefix = apiPrefix.TrimEnd('/');
+            AuthorizationToken = authorizationToken ?? string.Empty;
         }
+
+        public string AuthorizationToken { get; set; }
 
         public async Task<string> MatchAsync(TemplateFingerprint fingerprint)
         {
@@ -29,7 +33,20 @@ namespace ExcelCalibrationAddin.Core.Services
         {
             try
             {
-                return await _httpClient.GetStringAsync($"{_apiPrefix}/list");
+                using (var request = new HttpRequestMessage(HttpMethod.Get, $"{_apiPrefix}/list"))
+                {
+                    AddAuthorization(request);
+                    using (var response = await _httpClient.SendAsync(request))
+                    {
+                        var body = await response.Content.ReadAsStringAsync();
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            throw new InvalidOperationException($"模板服务返回错误：{body}");
+                        }
+
+                        return body;
+                    }
+                }
             }
             catch (TaskCanceledException)
             {
@@ -68,18 +85,23 @@ namespace ExcelCalibrationAddin.Core.Services
 
             try
             {
-                using (var response = await _httpClient.PostAsync(url, new StringContent(json, Encoding.UTF8, "application/json")))
+                using (var request = new HttpRequestMessage(HttpMethod.Post, url))
                 {
-                    var responseBody = await response.Content.ReadAsStringAsync();
-                    if (!response.IsSuccessStatusCode)
+                    request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+                    AddAuthorization(request);
+                    using (var response = await _httpClient.SendAsync(request))
                     {
-                        var message = string.IsNullOrWhiteSpace(responseBody)
-                            ? response.ReasonPhrase
-                            : responseBody;
-                        throw new InvalidOperationException($"模板服务返回错误：{message}");
-                    }
+                        var responseBody = await response.Content.ReadAsStringAsync();
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            var message = string.IsNullOrWhiteSpace(responseBody)
+                                ? response.ReasonPhrase
+                                : responseBody;
+                            throw new InvalidOperationException($"模板服务返回错误：{message}");
+                        }
 
-                    return responseBody;
+                        return responseBody;
+                    }
                 }
             }
             catch (TaskCanceledException)
@@ -89,6 +111,15 @@ namespace ExcelCalibrationAddin.Core.Services
             catch (HttpRequestException ex)
             {
                 throw new InvalidOperationException("无法连接模板服务，请确认后端服务是否可访问。", ex);
+            }
+        }
+
+        private void AddAuthorization(HttpRequestMessage request)
+        {
+            var token = (AuthorizationToken ?? string.Empty).Trim();
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             }
         }
     }

@@ -205,6 +205,7 @@ namespace ExcelCalibrationAddin.Vsto
                 ? new
                 {
                     ok = automationStatus.Ok,
+                    addinLoaded = automationStatus.AddinLoaded,
                     excelRunning = automationStatus.ExcelRunning,
                     workbookOpen = automationStatus.WorkbookOpen,
                     workbookName = automationStatus.WorkbookName,
@@ -235,6 +236,7 @@ namespace ExcelCalibrationAddin.Vsto
     internal sealed class YingdaoAutomationStatus
     {
         public bool Ok { get; set; }
+        public bool AddinLoaded { get; set; }
         public bool ExcelRunning { get; set; }
         public bool WorkbookOpen { get; set; }
         public string WorkbookName { get; set; } = string.Empty;

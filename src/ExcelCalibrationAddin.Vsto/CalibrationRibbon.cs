@@ -18,8 +18,24 @@ namespace ExcelCalibrationAddin.Vsto
         private void CalibrationRibbon_Load(object sender, RibbonUIEventArgs e)
         {
             lblAddinVersion.Label = AddinVersion.DisplayLabel;
+            UpdateServiceStatus("检测中...", string.Empty, "检测中...", "检测中...", "检测中...");
             ResetRandomRangeSummary();
             UpdateSampleDataButtonState();
+            _ = Globals.ThisAddIn?.RefreshServiceConnectionStatusAsync();
+        }
+
+        internal void UpdateServiceStatus(string cloudStatus, string cloudAddress, string cloudIp, string databaseStatus, string loginStatus)
+        {
+            if (lblCloudStatus == null)
+            {
+                return;
+            }
+
+            lblCloudStatus.Label = "云端：" + (cloudStatus ?? "未连接");
+            lblCloudAddress.Label = "云端地址：" + (cloudAddress ?? string.Empty);
+            lblCloudIp.Label = "云端IP：" + (cloudIp ?? "未知");
+            lblCloudDatabase.Label = "云数据库：" + (databaseStatus ?? "未连接");
+            lblLoginStatus.Label = "登录状态：" + (loginStatus ?? "未登录");
         }
 
         internal void UpdateSampleDataButtonState()
@@ -187,6 +203,22 @@ namespace ExcelCalibrationAddin.Vsto
             {
                 Trace.WriteLine($"[VSTO] Ribbon template library failed: {ex}");
                 System.Windows.Forms.MessageBox.Show(ex.Message, "模板库管理失败");
+            }
+        }
+
+        private async void btnCloudLogin_Click(object sender, RibbonControlEventArgs e)
+        {
+            try
+            {
+                await Globals.ThisAddIn.LoginToCloudAsync();
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"[VSTO] Cloud login failed: {ex}");
+                var detail = ex.InnerException == null
+                    ? ex.Message
+                    : ex.Message + Environment.NewLine + ex.InnerException.Message;
+                System.Windows.Forms.MessageBox.Show(detail, "云端登录失败");
             }
         }
 

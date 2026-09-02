@@ -25,7 +25,10 @@ namespace ExcelCalibrationAddin.Host
             ParameterValueParser = new ParameterValueParser();
             NumberFormatInterpreter = new NumberFormatInterpreter();
             MeasurementRuleParameterResolver = new MeasurementRuleParameterResolver();
-            TemplateSyncClient = new TemplateSyncClient(HttpClient, configuration.Backend.TemplateApiPrefix);
+            TemplateSyncClient = new TemplateSyncClient(
+                HttpClient,
+                configuration.Backend.TemplateApiPrefix,
+                configuration.Backend.AuthorizationToken);
             LocalTemplateRuleCacheRepository = new LocalTemplateRuleCacheRepository(configuration.Cache.SqliteFile);
             LocalTemplateRuleCacheRepository.Initialize();
             MeasurementRuleDraftBuilder = new MeasurementRuleDraftBuilder(NumberFormatInterpreter);

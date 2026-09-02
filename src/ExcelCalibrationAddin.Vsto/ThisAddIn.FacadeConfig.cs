@@ -33,6 +33,7 @@ namespace ExcelCalibrationAddin.Vsto
 
                 var loader = new ConfigurationLoader();
                 var configuration = loader.Load(_configPath);
+                configuration.Backend.AuthorizationToken = new CloudSessionStore().LoadToken();
                 configuration.Generation = LoadGenerationConfiguration();
                 _facade = new VstoAddinFacade(configuration);
                 Trace.WriteLine($"[VSTO] Facade initialized. Config={_configPath}");

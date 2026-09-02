@@ -58,7 +58,7 @@ namespace ExcelCalibrationAddin.Core.Tests
 
             var configuration = new ConfigurationLoader().Load(configPath);
 
-            Assert.AreEqual("http://localhost:3002", configuration.Backend.BaseUrl);
+            Assert.AreEqual("https://www.wzglpt.top", configuration.Backend.BaseUrl);
             Assert.AreEqual("/api/excel-templates", configuration.Backend.TemplateApiPrefix);
             StringAssert.EndsWith(configuration.Cache.SqliteFile, Path.Combine("ExcelCalibrationAddin", "cache.db"));
         }
@@ -4299,6 +4299,20 @@ namespace ExcelCalibrationAddin.Core.Tests
             }
         }
 
+        [TestMethod]
+        public async Task TemplateSyncClientAddsBearerAuthorizationWhenConfigured()
+        {
+            var handler = new StaticJsonHandler("{\"success\":true,\"found\":false}");
+            var client = new TemplateSyncClient(
+                new HttpClient(handler),
+                "https://www.wzglpt.top/api/excel-templates",
+                "cloud-token");
+
+            await client.MatchAsync(Fingerprint("auth-header"));
+
+            Assert.AreEqual("Bearer cloud-token", handler.LastAuthorization);
+        }
+
         private sealed class StaticJsonHandler : HttpMessageHandler
         {
             private readonly string _response;
@@ -4309,6 +4323,7 @@ namespace ExcelCalibrationAddin.Core.Tests
             }
 
             public string LastRequestBody { get; private set; } = string.Empty;
+            public string LastAuthorization { get; private set; } = string.Empty;
 
             protected override Task<HttpResponseMessage> SendAsync(
                 HttpRequestMessage request,
@@ -4317,6 +4332,7 @@ namespace ExcelCalibrationAddin.Core.Tests
                 LastRequestBody = request.Content == null
                     ? string.Empty
                     : request.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                LastAuthorization = request.Headers.Authorization?.ToString() ?? string.Empty;
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(_response)

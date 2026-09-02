@@ -57,6 +57,7 @@
     <Reference Include="System.Core" />
     <Reference Include="System.Data" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.Security" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
     <Reference Include="System.Xml.Linq" />
@@ -131,6 +132,8 @@
     <Compile Include="ExcelGenerationTransaction.cs" />
     <Compile Include="ThisAddIn.ServiceConnection.cs" />
     <Compile Include="YingdaoAutomationServer.cs" />
+    <Compile Include="CloudLoginDialog.cs" />
+    <Compile Include="CloudSessionStore.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Properties\Resources.Designer.cs">
       <AutoGen>True</AutoGen>

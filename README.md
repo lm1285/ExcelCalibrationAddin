@@ -58,7 +58,9 @@ The add-in can use a local HTTP backend backed by the same SQLite database as th
 powershell -ExecutionPolicy Bypass -File .\tools\start_local_backend.ps1
 ```
 
-Default endpoint: `http://localhost:3002/api/excel-templates`.
+生产环境默认 endpoint: `https://www.wzglpt.top/api/excel-templates`。加载项启动后会从本机 DPAPI 会话存储读取云端 Token；首次使用请在 Excel“校准助手”功能区点击“云端登录”，使用管理系统账号登录。
+
+本地开发仍可在 `src\ExcelCalibrationAddin.Vsto\appsettings.json` 中将 `Backend.BaseUrl` 改为 `http://localhost:3002`。
 
 The bundled server only listens on an HTTP loopback address. POST endpoints require
 `application/json`, reject browser-originated requests, and limit request bodies to 5 MB.
@@ -72,6 +74,22 @@ Supported routes:
 - `POST /api/excel-templates/save`
 
 The add-in performs a background template synchronization on startup when the last successful sync is older than one day. The template library window also provides manual synchronization and diagnostic package export.
+
+## Shadow Knife Automation
+
+影刀调用 Excel 加载项的本机接口：
+
+- `GET http://127.0.0.1:30771/api/yingdao/health`
+- `GET http://127.0.0.1:30771/api/yingdao/status`
+- `POST http://127.0.0.1:30771/api/yingdao/generate`
+
+影刀推荐调用 `tools\yingdao_excel.py` 中的模块 `EXCELjzx` 函数
+`generate_after_excel_open`。函数会由模块监视加载项状态，每隔
+`interval_seconds` 秒检查一次，最多检查 `retries` 次；只有确认加载项已加载、目标工作簿已打开、模板已匹配且存在可生成规则后，才调用生成接口。
+默认参数为 `retries=60`、`interval_seconds=1`，即最多等待约 60 秒。
+
+当 `Automation.Token` 非空时，请在请求头发送 `X-Excel-Calibration-Token`。影刀任务完成后可将结果回传管理系统：
+`POST https://www.wzglpt.top/api/shadow-knife-linkage/workbench/sync`，并在 `X-Shadow-Knife-Key` 中发送服务端配置的 `SHADOW_KNIFE_WEBHOOK_KEY`。
 
 The database path comes from `Cache.SqliteFile` in `src\ExcelCalibrationAddin.Vsto\appsettings.json`; by default it is `%LOCALAPPDATA%\ExcelCalibrationAddin\cache.db`.
 

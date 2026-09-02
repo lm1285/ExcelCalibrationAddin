@@ -44,6 +44,7 @@ namespace ExcelCalibrationAddin.Vsto
         private YingdaoAutomationServer _yingdaoAutomationServer;
         private Process _yingdaoAutomationBridge;
         private SynchronizationContext _excelUiSynchronizationContext;
+        private System.Threading.Timer _serviceStatusTimer;
 
         internal void ToggleTaskPane()
         {

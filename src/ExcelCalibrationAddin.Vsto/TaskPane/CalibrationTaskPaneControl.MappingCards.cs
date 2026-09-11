@@ -483,7 +483,7 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		var tag = new FieldStatusTag(rowIndex, ColumnIndexFromName(columnName), columnName);
 		Panel card = new Panel
 		{
-			Cursor = (_stateFeaturesBlocked ? Cursors.Default : Cursors.Hand),
+			Cursor = Cursors.Hand,
 			Dock = DockStyle.Fill,
 			Margin = new Padding(0, 0, 6, 4),
 			Padding = new Padding(8, 3, 4, 2),
@@ -511,18 +511,15 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		card.Controls.Add(value);
 		card.Controls.Add(caption);
 		ApplyFieldStatusCardTheme(card, range, false);
-		if (!_stateFeaturesBlocked)
+		card.Click += FieldStatusCard_Click;
+		caption.Click += delegate(object sender, EventArgs e) { FieldStatusCard_Click(card, e); };
+		value.Click += delegate(object sender, EventArgs e) { FieldStatusCard_Click(card, e); };
+		if (!_featuresBlocked)
 		{
-			card.Click += FieldStatusCard_Click;
-			caption.Click += delegate(object sender, EventArgs e) { FieldStatusCard_Click(card, e); };
-			value.Click += delegate(object sender, EventArgs e) { FieldStatusCard_Click(card, e); };
-			if (!_readOnlyMode)
-			{
-				ContextMenuStrip menu = CreateFieldContextMenu(rowIndex, columnName);
-				card.ContextMenuStrip = menu;
-				caption.ContextMenuStrip = menu;
-				value.ContextMenuStrip = menu;
-			}
+			ContextMenuStrip menu = CreateFieldContextMenu(rowIndex, columnName);
+			card.ContextMenuStrip = menu;
+			caption.ContextMenuStrip = menu;
+			value.ContextMenuStrip = menu;
 		}
 		_fieldStatusCards.Add(card);
 		return card;

@@ -1040,6 +1040,60 @@ namespace ExcelCalibrationAddin.Core.Tests
         }
 
         [TestMethod]
+        public void DraftBuilderUsesNearestExplicitRangeAndIgnoresFsRequirementHeader()
+        {
+            var cells = new List<CellMeta>
+            {
+                new CellMeta { Row = 6, Column = 19, Text = "量程：" },
+                new CellMeta { Row = 6, Column = 21, Text = "(" },
+                new CellMeta { Row = 6, Column = 22, Text = "3" },
+                new CellMeta { Row = 6, Column = 24, Text = "～" },
+                new CellMeta { Row = 6, Column = 25, Text = "100" },
+                new CellMeta { Row = 10, Column = 1, Text = "2.2、示值误差：" },
+                new CellMeta { Row = 11, Column = 2, Text = "标准值" },
+                new CellMeta { Row = 11, Column = 9, Text = "测量值" },
+                new CellMeta { Row = 11, Column = 21, Text = "技术要求(%FS)" },
+                new CellMeta { Row = 12, Column = 2, Text = "3" },
+                new CellMeta { Row = 12, Column = 9, NumberFormat = "0.0" },
+                new CellMeta { Row = 12, Column = 21, Text = "±5" }
+            };
+            var snapshot = new WorkbookSnapshot
+            {
+                Sheets = new List<SheetSnapshot>
+                {
+                    new SheetSnapshot { Name = "原始记录", Cells = cells }
+                }
+            };
+
+            var mapping = new MeasurementRuleDraftBuilder(new NumberFormatInterpreter())
+                .BuildMappings(new RecognitionResult
+                {
+                    Snapshot = snapshot,
+                    RecognizedFields = new List<RecognizedField>
+                    {
+                        new RecognizedField
+                        {
+                            Alias = "2.2、示值误差",
+                            Score = 96,
+                            Range = new CellRange
+                            {
+                                SheetName = "原始记录",
+                                StartRow = 10,
+                                EndRow = 12,
+                                StartColumn = 1,
+                                EndColumn = 21
+                            }
+                        }
+                    }
+                })
+                .Single();
+
+            Assert.AreEqual(22, mapping.RangeValueRange.StartColumn);
+            Assert.AreEqual(25, mapping.RangeValueRange.EndColumn);
+            Assert.AreEqual(6, mapping.RangeValueRange.StartRow);
+        }
+
+        [TestMethod]
         public void FieldMatcherDoesNotTreatTableHeaderAsNestedSection()
         {
             var sheet = new SheetSnapshot
@@ -1060,6 +1114,48 @@ namespace ExcelCalibrationAddin.Core.Tests
 
             Assert.AreEqual(1, fields.Count);
             Assert.AreEqual(5, fields[0].Range.StartRow);
+        }
+
+        [TestMethod]
+        public void RepeatedCalibrationItemsAreAllRecognizedAndKeepTheirOwnRanges()
+        {
+            var cells = new List<CellMeta>();
+            for (var item = 0; item < 15; item++)
+            {
+                var titleRow = 1 + item * 4;
+                cells.Add(new CellMeta { Row = titleRow, Column = 1, Text = $"{item + 1}.1、示值误差" });
+                cells.Add(new CellMeta { Row = titleRow + 1, Column = 1, Text = "标准值" });
+                cells.Add(new CellMeta { Row = titleRow + 1, Column = 2, Text = "测量值" });
+                cells.Add(new CellMeta { Row = titleRow + 1, Column = 3, Text = "示值误差" });
+                cells.Add(new CellMeta { Row = titleRow + 1, Column = 4, Text = "技术要求" });
+                cells.Add(new CellMeta { Row = titleRow + 2, Column = 1, Text = "10", NumberFormat = "0.0" });
+                cells.Add(new CellMeta { Row = titleRow + 2, Column = 2, NumberFormat = "0.0" });
+                cells.Add(new CellMeta { Row = titleRow + 2, Column = 3, Formula = $"=B{titleRow + 2}-A{titleRow + 2}", NumberFormat = "0.0" });
+                cells.Add(new CellMeta { Row = titleRow + 2, Column = 4, Text = "±1", NumberFormat = "0.0" });
+            }
+
+            var snapshot = new WorkbookSnapshot
+            {
+                Sheets = new List<SheetSnapshot>
+                {
+                    new SheetSnapshot { Name = "原始记录", Cells = cells }
+                }
+            };
+            var recognition = new RecognitionResult
+            {
+                Snapshot = snapshot,
+                RecognizedFields = new FieldMatcher().MatchMeasurementFields(snapshot.Sheets[0])
+            };
+
+            var builder = new MeasurementRuleDraftBuilder(new NumberFormatInterpreter());
+            var mappings = builder.BuildMappings(recognition);
+            var rules = builder.BuildDraftRules(recognition, mappings);
+
+            Assert.AreEqual(15, recognition.RecognizedFields.Count);
+            Assert.AreEqual(15, mappings.Count);
+            Assert.AreEqual(15, rules.Count);
+            Assert.AreEqual(15, rules.Select(rule => rule.TargetRange.StartRow).Distinct().Count());
+            Assert.IsTrue(rules.All(rule => rule.TargetRange.EndColumn < 3));
         }
 
         [TestMethod]

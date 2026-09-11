@@ -34,9 +34,13 @@ namespace ExcelCalibrationAddin.Vsto
             {
                 var generationOverride = Globals.Ribbons?.CalibrationRibbon?.GetSingleUseOverride();
                 var workbookKey = ResolveWorkbookKey(workbook);
-                if (!CanUseCachedGenerationState(workbookKey) && !HasCachedWorkbookMatchState(workbookKey))
+                // A workbook-scoped cache entry can be stale after editing and
+                // saving a template (especially when a calibration item was
+                // added manually). Re-match whenever the cached rules cannot
+                // be used instead of treating the stale entry as authoritative.
+                if (!CanUseCachedGenerationState(workbookKey))
                 {
-                    await MatchWorkbookIfAvailableAsync(workbook, force: false);
+                    await MatchWorkbookIfAvailableAsync(workbook, force: true);
                 }
 
                 if (!CanUseCachedGenerationState(workbookKey))

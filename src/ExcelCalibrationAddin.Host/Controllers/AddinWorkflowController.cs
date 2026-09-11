@@ -247,8 +247,21 @@ namespace ExcelCalibrationAddin.Host.Controllers
                 .Select(savedRule => RebaseRuleToCurrentLayout(
                     savedRule,
                     (currentLayoutRules ?? Array.Empty<MeasurementRule>())
+                        .Where(currentRule => currentRule != null)
+                        .OrderByDescending(currentRule => RangesEqual(currentRule.TargetRange, savedRule.TargetRange))
                         .FirstOrDefault(currentRule => SameRuleName(savedRule, currentRule))))
                 .ToList();
+        }
+
+        private static bool RangesEqual(CellRange left, CellRange right)
+        {
+            return left != null &&
+                right != null &&
+                string.Equals(left.SheetName, right.SheetName, StringComparison.OrdinalIgnoreCase) &&
+                left.StartRow == right.StartRow &&
+                left.EndRow == right.EndRow &&
+                left.StartColumn == right.StartColumn &&
+                left.EndColumn == right.EndColumn;
         }
 
         private static MeasurementRule RebaseRuleToCurrentLayout(

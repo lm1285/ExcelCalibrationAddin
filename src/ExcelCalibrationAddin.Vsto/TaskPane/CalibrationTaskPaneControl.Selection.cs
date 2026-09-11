@@ -158,11 +158,20 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 
 	private void ResizeMappingCards()
 	{
+		int availableWidth = _mappingCards.ClientSize.Width;
+		if (availableWidth == _lastMappingCardsWidth)
+		{
+			return;
+		}
+		_lastMappingCardsWidth = availableWidth;
+		_mappingCards.SuspendLayout();
+		try
+		{
 		foreach (Control control3 in _mappingCards.Controls)
 		{
 			// Cards follow the available pane width. A fixed minimum here creates
 			// a horizontal scrollbar on narrow Excel windows and clips the editor.
-			control3.Width = ((_mappingCards.ClientSize.Width <= 0) ? control3.Width : Math.Max(120, _mappingCards.ClientSize.Width - 2));
+			control3.Width = ((availableWidth <= 0) ? control3.Width : Math.Max(120, availableWidth - 2));
 			foreach (Control control4 in control3.Controls)
 			{
 				if (control4.Name == "collapseIndicator")
@@ -190,6 +199,11 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		if (_deleteSelectedCalibrationItemsButton != null)
 		{
 			_deleteSelectedCalibrationItemsButton.Left = Math.Max(16, panelRules.Width - 86);
+		}
+		}
+		finally
+		{
+			_mappingCards.ResumeLayout(true);
 		}
 	}
 

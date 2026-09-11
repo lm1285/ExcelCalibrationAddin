@@ -215,6 +215,70 @@ namespace ExcelCalibrationAddin.Host.Services
             return null;
         }
 
+        private static CellRange FindInlineRangeValueRange(SheetSnapshot sheet, int startRow, int endRow)
+        {
+            if (sheet == null)
+            {
+                return null;
+            }
+
+            var searchStartRow = Math.Max(1, startRow - 18);
+            var searchEndRow = Math.Min(endRow, startRow + 12);
+            var labels = sheet.Cells
+                .Where(cell =>
+                    cell.Row >= searchStartRow &&
+                    cell.Row <= searchEndRow &&
+                    !string.IsNullOrWhiteSpace(cell.Text) &&
+                    IsExplicitRangeLabel(cell.Text))
+                .OrderByDescending(cell => cell.Row <= startRow)
+                .ThenByDescending(cell => cell.Row)
+                .ThenBy(cell => cell.Column)
+                .ToList();
+
+            foreach (var label in labels)
+            {
+                var labelEndColumn = label.MergeRange?.EndColumn ?? label.Column;
+                if (HasInlineParameterValue(label.Text, RangeKeywords))
+                {
+                    return BuildSingleCellRange(sheet.Name, label);
+                }
+
+                var numericCells = sheet.Cells
+                    .Where(cell =>
+                        cell.Row == label.Row &&
+                        cell.Column > labelEndColumn &&
+                        cell.Column <= labelEndColumn + 12 &&
+                        SheetRowContentAnalyzer.LooksNumeric(cell.Text))
+                    .Select(cell => MergedCellLogicalRangeResolver.ResolveEffectiveRange(cell))
+                    .ToList();
+                if (numericCells.Count == 0)
+                {
+                    continue;
+                }
+
+                return new CellRange
+                {
+                    SheetName = sheet.Name,
+                    StartRow = numericCells.Min(range => range.StartRow),
+                    EndRow = numericCells.Max(range => range.EndRow),
+                    StartColumn = numericCells.Min(range => range.StartColumn),
+                    EndColumn = numericCells.Max(range => range.EndColumn)
+                };
+            }
+
+            return null;
+        }
+
+        private static bool IsExplicitRangeLabel(string text)
+        {
+            var normalized = NormalizeHeaderText(text);
+            return RangeKeywords
+                .Where(keyword => !string.Equals(keyword, "FS", StringComparison.OrdinalIgnoreCase) &&
+                                  !string.Equals(keyword, "Full Scale", StringComparison.OrdinalIgnoreCase) &&
+                                  !string.Equals(keyword, "Span", StringComparison.OrdinalIgnoreCase))
+                .Any(keyword => string.Equals(normalized, NormalizeHeaderText(keyword), StringComparison.OrdinalIgnoreCase));
+        }
+
         private static CellRange FindInlineParameterRegion(SheetSnapshot sheet, int startRow, int endRow, params string[] keywords)
         {
             var searchEndRow = Math.Min(endRow, startRow + 12);

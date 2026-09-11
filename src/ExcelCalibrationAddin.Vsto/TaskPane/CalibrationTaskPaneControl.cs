@@ -180,6 +180,9 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 	private bool _isBinding;
 	private bool _hasUnsavedChanges;
 	private bool _isEditingSavedTemplate;
+	private bool _layoutQueued;
+	private bool _layoutInProgress;
+	private int _lastMappingCardsWidth = -1;
 	private string _editingTemplateFingerprint = string.Empty;
 	private string _editingRemoteTemplateId = string.Empty;
 	private string _editingTemplateName = string.Empty;
@@ -209,6 +212,43 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		finally
 		{
 			RestoreDpiContext(previousDpiContext);
+		}
+	}
+
+	private void RequestLayout()
+	{
+		if (_layoutInProgress || _layoutQueued || !IsHandleCreated)
+		{
+			return;
+		}
+
+		_layoutQueued = true;
+		try
+		{
+		BeginInvoke((MethodInvoker)delegate
+		{
+			_layoutQueued = false;
+			if (IsDisposed || Disposing || _layoutInProgress)
+			{
+				return;
+			}
+
+			_layoutInProgress = true;
+			try
+			{
+				SuspendLayout();
+				LayoutContent();
+			}
+			finally
+			{
+				ResumeLayout(true);
+				_layoutInProgress = false;
+			}
+		});
+		}
+		catch (InvalidOperationException)
+		{
+			_layoutQueued = false;
 		}
 	}
 

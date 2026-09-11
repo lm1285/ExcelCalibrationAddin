@@ -21,8 +21,9 @@ namespace ExcelCalibrationAddin.Host.Vsto
                 return HasInactiveLocalTemplate(result);
             }
 
-            return HasBackendFailure(result) ||
-                HasFingerprintFailure(result) ||
+            // Remote sync is an enhancement, not a prerequisite for local
+            // recognition and editing. Offline saves are queued for upload.
+            return HasFingerprintFailure(result) ||
                 HasInactiveLocalTemplate(result) ||
                 HasInactiveRemoteTemplate(result);
         }

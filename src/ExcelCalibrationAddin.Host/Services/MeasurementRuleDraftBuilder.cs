@@ -40,7 +40,7 @@ namespace ExcelCalibrationAddin.Host.Services
         {
             var mappings = new List<TemplateRegionMapping>();
 
-            foreach (var field in recognition.RecognizedFields.Where(item => item.Score >= 70).Take(10))
+            foreach (var field in recognition.RecognizedFields.Where(item => item.Score >= 70))
             {
                 var sheet = recognition.Snapshot.Sheets.FirstOrDefault(item => item.Name == field.Range.SheetName);
                 if (sheet == null)
@@ -132,7 +132,7 @@ namespace ExcelCalibrationAddin.Host.Services
                 }
                 var uncertaintyRange = FindDataRange(sheet, startRow, endRow, UncertaintyKeywords)
                     ?? InferRangeFromLayout(sheet, headerBand, endRow, UncertaintyKeywords, technicalRange, errorRange, averageRange);
-                var rangeValueRange = FindInlineParameterRegion(sheet, startRow, endRow, RangeKeywords)
+                var rangeValueRange = FindInlineRangeValueRange(sheet, startRow, endRow)
                     ?? FindInlineParameterValueRange(sheet, startRow, endRow, RangeKeywords)
                     ?? FindDataRange(sheet, startRow, endRow, RangeKeywords)
                     ?? InferRangeFromLayout(sheet, headerBand, endRow, RangeKeywords, technicalRange, uncertaintyRange, errorRange);

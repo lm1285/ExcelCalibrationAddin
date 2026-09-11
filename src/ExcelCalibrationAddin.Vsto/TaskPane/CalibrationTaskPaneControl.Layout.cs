@@ -84,7 +84,7 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		_fieldActionBar.Controls.Add(_clearSelectedFieldRangeButton);
 		base.Resize += delegate
 		{
-			LayoutContent();
+			RequestLayout();
 		};
 		LayoutContent();
 	}

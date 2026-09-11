@@ -8,7 +8,10 @@ namespace ExcelCalibrationAddin.Core.Services
 {
     public sealed class FieldMatcher
     {
-        private const int MaxSectionsPerSheet = 12;
+        // A multi-gas record can contain the same calibration item once per
+        // gas. Keep a generous guard for malformed sheets, but do not cap
+        // normal repeated item blocks at the first dozen.
+        private const int MaxSectionsPerSheet = 100;
 
         private static readonly Regex SectionTitleRegex = new Regex(
             @"^\s*[一二三四五六七八九十\d]+\s*[、.)．\-]\s*.+",

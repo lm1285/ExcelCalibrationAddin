@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using ExcelCalibrationAddin.Contracts;
+using ExcelCalibrationAddin.Core.Services;
 using ExcelCalibrationAddin.Host.Recognition;
 
 namespace ExcelCalibrationAddin.Host.Services
@@ -106,6 +107,11 @@ namespace ExcelCalibrationAddin.Host.Services
             if (string.IsNullOrWhiteSpace(value))
             {
                 return false;
+            }
+
+            if (FieldMatcher.IsNumberedSectionTitleText(value))
+            {
+                return true;
             }
 
             if (value.Contains('\uFF1A') || value.Contains(':'))

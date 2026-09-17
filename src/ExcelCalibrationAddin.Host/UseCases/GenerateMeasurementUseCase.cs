@@ -31,6 +31,8 @@ namespace ExcelCalibrationAddin.Host.UseCases
         private readonly MeasurementSeriesGenerator _seriesGenerator;
         private GenerationConfiguration _generationConfiguration;
         private readonly Random _random = new Random();
+        private readonly SampleDistributionService _sampleDistributionService = new SampleDistributionService();
+        private IReadOnlyList<SampleDataPoint> _sampleDataPoints = new List<SampleDataPoint>();
 
         public GenerateMeasurementUseCase(
             Func<GenerationConfiguration, MeasurementValueGenerator> generatorFactory,
@@ -52,6 +54,13 @@ namespace ExcelCalibrationAddin.Host.UseCases
         public void SetGenerationConfiguration(GenerationConfiguration configuration)
         {
             _generationConfiguration = _configurationStore.Clone(configuration);
+        }
+
+        public void SetSampleDataPoints(IEnumerable<SampleDataPoint> points)
+        {
+            _sampleDataPoints = (points ?? Enumerable.Empty<SampleDataPoint>())
+                .Where(point => point != null)
+                .ToList();
         }
 
         public GenerationWriteResult Write(IEnumerable<MeasurementRule> rules)

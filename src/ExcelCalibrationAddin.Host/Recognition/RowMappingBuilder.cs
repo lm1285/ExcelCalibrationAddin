@@ -48,7 +48,23 @@ namespace ExcelCalibrationAddin.Host.Recognition
                     TechnicalRequirementRange = ResolveRangeForRow(sheet, rule.MpeSource?.Range, row),
                     RangeValueRange = ResolveRangeForRow(sheet, rule.RangeSource?.Range, row),
                     UncertaintyRange = ResolveRangeForRow(sheet, rule.UncertaintySource?.Range, row),
-                    ResultRange = ResolveRangeForRow(sheet, rule.ResultSource?.Range, row)
+                    ResultRange = ResolveRangeForRow(sheet, rule.ResultSource?.Range, row),
+                    AdditionalJudgementConstraints = (rule.AdditionalJudgementConstraints ?? new List<MeasurementJudgementConstraint>())
+                        .Where(item => item != null)
+                        .Select(item => new MeasurementJudgementConstraint
+                        {
+                            Name = item.Name,
+                            ErrorSource = SliceSource(item.ErrorSource, sheet, row),
+                            MpeSource = SliceSource(item.MpeSource, sheet, row),
+                            ResultSource = SliceSource(item.ResultSource, sheet, row),
+                            ErrorType = item.ErrorType,
+                            FixedMpe = item.FixedMpe,
+                            FixedNegativeTolerance = item.FixedNegativeTolerance,
+                            FixedPositiveTolerance = item.FixedPositiveTolerance,
+                            RequirementOperator = item.RequirementOperator,
+                            ErrorFormula = item.ErrorFormula
+                        })
+                        .ToList()
                 };
                 var missing = BuildMissingFields(mapping, usesMaximumError);
                 mapping.IsComplete = missing.Count == 0;
@@ -59,6 +75,22 @@ namespace ExcelCalibrationAddin.Host.Recognition
             }
 
             return result;
+        }
+
+        private static ParameterSource SliceSource(ParameterSource source, SheetSnapshot sheet, int row)
+        {
+            var range = ResolveRangeForRow(sheet, source?.Range, row);
+            if (range == null)
+            {
+                return null;
+            }
+
+            return new ParameterSource
+            {
+                Name = source?.Name ?? string.Empty,
+                Range = range,
+                ValuePattern = source?.ValuePattern ?? string.Empty
+            };
         }
 
         private static CellRange ResolveRangeForRow(SheetSnapshot sheet, CellRange source, int row)

@@ -32,7 +32,6 @@ namespace ExcelCalibrationAddin.Vsto
           <box id=""SingleUseOverrideBox"" boxStyle=""vertical"">
             <comboBox id=""cboOverrideRule"" label=""校准项"" getText=""GetText"" onChange=""OnTextChanged"" getItemCount=""GetItemCount"" getItemLabel=""GetItemLabel"" />
             <editBox id=""edtOverrideRange"" label=""系数区间"" getText=""GetText"" onChange=""OnTextChanged"" />
-            <editBox id=""edtOverrideDecimals"" label=""小数位数"" getText=""GetText"" onChange=""OnTextChanged"" />
           </box>
           <button id=""btnRandomConfig"" label=""配置"" imageMso=""DefineName"" onAction=""OnButtonAction"" />
         </group>

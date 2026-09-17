@@ -48,7 +48,8 @@ namespace ExcelCalibrationAddin.Host.Interop
         {
             var snapshot = new WorkbookSnapshot
             {
-                WorkbookName = SafeToString(_workbook.Name)
+                WorkbookName = SafeToString(_workbook.Name),
+                NamedRanges = CaptureNamedRanges()
             };
 
             var activeSheetName = GetActiveSheetName();
@@ -79,7 +80,8 @@ namespace ExcelCalibrationAddin.Host.Interop
 
             var snapshot = new WorkbookSnapshot
             {
-                WorkbookName = SafeToString(_workbook.Name)
+                WorkbookName = SafeToString(_workbook.Name),
+                NamedRanges = CaptureNamedRanges()
             };
 
             var rangesBySheet = (ranges ?? Enumerable.Empty<CellRange>())
@@ -125,6 +127,75 @@ namespace ExcelCalibrationAddin.Host.Interop
             {
                 return string.Empty;
             }
+        }
+
+        private List<NamedRangeDefinition> CaptureNamedRanges()
+        {
+            var result = new List<NamedRangeDefinition>();
+            try
+            {
+                foreach (var definedName in _workbook.Names)
+                {
+                    try
+                    {
+                        dynamic refersToRange = definedName.RefersToRange;
+                        dynamic worksheet = refersToRange.Worksheet;
+                        var workbookName = SafeToString(worksheet.Parent?.Name);
+                        if (!string.Equals(workbookName, SafeToString(_workbook.Name), StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        var row = SafeToInt(refersToRange.Row);
+                        var column = SafeToInt(refersToRange.Column);
+                        var rowCount = SafeToInt(refersToRange.Rows.Count);
+                        var columnCount = SafeToInt(refersToRange.Columns.Count);
+                        if (row <= 0 || column <= 0 || rowCount <= 0 || columnCount <= 0)
+                        {
+                            continue;
+                        }
+
+                        var name = NormalizeDefinedName(SafeToString(definedName.Name));
+                        if (string.IsNullOrWhiteSpace(name))
+                        {
+                            continue;
+                        }
+
+                        result.Add(new NamedRangeDefinition
+                        {
+                            Name = name,
+                            Range = new CellRange
+                            {
+                                SheetName = SafeToString(worksheet.Name),
+                                StartRow = row,
+                                StartColumn = column,
+                                EndRow = row + rowCount - 1,
+                                EndColumn = column + columnCount - 1
+                            }
+                        });
+                    }
+                    catch
+                    {
+                        // Constants, formulas and external names do not resolve to a local range.
+                    }
+                }
+            }
+            catch
+            {
+                // A workbook without accessible names remains valid.
+            }
+
+            return result
+                .GroupBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToList();
+        }
+
+        private static string NormalizeDefinedName(string value)
+        {
+            var name = (value ?? string.Empty).Trim().Trim('\'');
+            var separator = name.LastIndexOf('!');
+            return (separator >= 0 ? name.Substring(separator + 1) : name).Trim().Trim('\'');
         }
 
     }

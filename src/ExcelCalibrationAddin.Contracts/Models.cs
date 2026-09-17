@@ -108,6 +108,13 @@ namespace ExcelCalibrationAddin.Contracts
     {
         public string WorkbookName { get; set; } = string.Empty;
         public List<SheetSnapshot> Sheets { get; set; } = new List<SheetSnapshot>();
+        public List<NamedRangeDefinition> NamedRanges { get; set; } = new List<NamedRangeDefinition>();
+    }
+
+    public sealed class NamedRangeDefinition
+    {
+        public string Name { get; set; } = string.Empty;
+        public CellRange Range { get; set; }
     }
 
     public sealed class FormatRule
@@ -124,6 +131,20 @@ namespace ExcelCalibrationAddin.Contracts
         public string Name { get; set; } = string.Empty;
         public CellRange Range { get; set; }
         public string ValuePattern { get; set; } = string.Empty;
+    }
+
+    public sealed class MeasurementJudgementConstraint
+    {
+        public string Name { get; set; } = string.Empty;
+        public ParameterSource ErrorSource { get; set; }
+        public ParameterSource MpeSource { get; set; }
+        public ParameterSource ResultSource { get; set; }
+        public ErrorType ErrorType { get; set; }
+        public double? FixedMpe { get; set; }
+        public double? FixedNegativeTolerance { get; set; }
+        public double? FixedPositiveTolerance { get; set; }
+        public TechnicalRequirementOperator RequirementOperator { get; set; }
+        public ErrorFormulaInfo ErrorFormula { get; set; }
     }
 
     public sealed class MeasurementRule
@@ -160,6 +181,7 @@ namespace ExcelCalibrationAddin.Contracts
         public bool NegativeDirectionOnly { get; set; }
         public MeasurementGenerationCoefficientOverride GenerationCoefficientOverride { get; set; }
         public ErrorFormulaInfo ErrorFormula { get; set; }
+        public List<MeasurementJudgementConstraint> AdditionalJudgementConstraints { get; set; } = new List<MeasurementJudgementConstraint>();
         public TemplateFieldDefinition TemplateDefinition { get; set; }
     }
 
@@ -182,6 +204,7 @@ namespace ExcelCalibrationAddin.Contracts
         public CellRange RangeValueRange { get; set; }
         public CellRange UncertaintyRange { get; set; }
         public CellRange ResultRange { get; set; }
+        public List<MeasurementJudgementConstraint> AdditionalJudgementConstraints { get; set; } = new List<MeasurementJudgementConstraint>();
         public bool IsComplete { get; set; }
         public string StatusMessage { get; set; } = string.Empty;
     }
@@ -222,6 +245,8 @@ namespace ExcelCalibrationAddin.Contracts
         public ErrorFormulaScale Scale { get; set; } = ErrorFormulaScale.Absolute;
         public bool FormulaMultipliesBy100 { get; set; }
         public bool FormulaDividesByReferenceRange { get; set; }
+        public List<CellRange> DependencyRanges { get; set; } = new List<CellRange>();
+        public List<string> UnresolvedDependencies { get; set; } = new List<string>();
     }
 
     public static class ErrorFormulaClassifier
@@ -343,6 +368,7 @@ namespace ExcelCalibrationAddin.Contracts
         public CellRange UncertaintyRange { get; set; }
         public CellRange RangeValueRange { get; set; }
         public CellRange ResultRange { get; set; }
+        public List<MeasurementJudgementConstraint> AdditionalJudgementConstraints { get; set; } = new List<MeasurementJudgementConstraint>();
         public string Notes { get; set; } = string.Empty;
     }
 
@@ -363,6 +389,7 @@ namespace ExcelCalibrationAddin.Contracts
         public bool ForceNegativeDirection { get; set; }
         public bool UseSameDeviationDirection { get; set; } = true;
         public bool UseIndependentDeviationControl { get; set; } = true;
+        public bool RequireVisibleVariation { get; set; }
         public double? AnchorError { get; set; }
         public MeasurementGenerationCoefficientOverride CoefficientOverride { get; set; }
         public double? MeasurementLowerBound { get; set; }

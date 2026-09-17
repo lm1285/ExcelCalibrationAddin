@@ -141,7 +141,8 @@ namespace ExcelCalibrationAddin.Host.Controllers
                     TechnicalRequirementRange = CloneRange(rule.MpeSource?.Range),
                     RangeValueRange = CloneRange(rule.RangeSource?.Range),
                     UncertaintyRange = CloneRange(rule.UncertaintySource?.Range),
-                    ResultRange = CloneRange(rule.ResultSource?.Range)
+                    ResultRange = CloneRange(rule.ResultSource?.Range),
+                    AdditionalJudgementConstraints = CloneJudgementConstraints(rule.AdditionalJudgementConstraints)
                 })
                 .ToList();
         }
@@ -234,6 +235,7 @@ namespace ExcelCalibrationAddin.Host.Controllers
                 NegativeDirectionOnly = rule.NegativeDirectionOnly,
                 GenerationCoefficientOverride = CloneCoefficientOverride(rule.GenerationCoefficientOverride),
                 ErrorFormula = CloneErrorFormula(rule.ErrorFormula),
+                AdditionalJudgementConstraints = CloneJudgementConstraints(rule.AdditionalJudgementConstraints),
                 TemplateDefinition = TemplateDefinitionCloner.Clone(rule.TemplateDefinition)
             };
         }
@@ -291,6 +293,7 @@ namespace ExcelCalibrationAddin.Host.Controllers
             rule.RangeSource = BuildParameterSource(rule.RangeSource, currentLayoutRule.RangeSource?.Range);
             rule.UncertaintySource = BuildParameterSource(rule.UncertaintySource, currentLayoutRule.UncertaintySource?.Range);
             rule.ResultSource = BuildParameterSource(rule.ResultSource, currentLayoutRule.ResultSource?.Range);
+            rule.AdditionalJudgementConstraints = CloneJudgementConstraints(currentLayoutRule.AdditionalJudgementConstraints);
             rule.WritableCells = CloneCellAddresses(currentLayoutRule.WritableCells);
             rule.GroupSize = currentLayoutRule.GroupSize;
             rule.TemplateDefinition = TemplateDefinitionCloner.Clone(currentLayoutRule.TemplateDefinition);
@@ -387,8 +390,18 @@ namespace ExcelCalibrationAddin.Host.Controllers
                 ResultFormula = info.ResultFormula,
                 Scale = info.Scale,
                 FormulaMultipliesBy100 = info.FormulaMultipliesBy100,
-                FormulaDividesByReferenceRange = info.FormulaDividesByReferenceRange
+                FormulaDividesByReferenceRange = info.FormulaDividesByReferenceRange,
+                DependencyRanges = (info.DependencyRanges ?? new List<CellRange>())
+                    .Select(CloneRange)
+                    .ToList(),
+                UnresolvedDependencies = new List<string>(info.UnresolvedDependencies ?? new List<string>())
             };
+        }
+
+        private static List<MeasurementJudgementConstraint> CloneJudgementConstraints(
+            IEnumerable<MeasurementJudgementConstraint> constraints)
+        {
+            return MeasurementRuleCloner.CloneJudgementConstraints(constraints);
         }
 
         private static ParameterSource BuildParameterSource(ParameterSource existing, CellRange range)
@@ -539,6 +552,11 @@ namespace ExcelCalibrationAddin.Host.Controllers
         public GenerationWriteResult Write(IReadOnlyList<MeasurementRule> rules)
         {
             return _orchestrator.WriteGeneration(rules);
+        }
+
+        public void SetSampleDataPoints(IEnumerable<SampleDataPoint> points)
+        {
+            _orchestrator.SetSampleDataPoints(points);
         }
 
         public GenerationWriteResult Write(IReadOnlyList<MeasurementRule> rules, GenerationConfiguration generationConfiguration)

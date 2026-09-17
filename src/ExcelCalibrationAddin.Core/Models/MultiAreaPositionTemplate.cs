@@ -67,7 +67,10 @@ namespace ExcelCalibrationAddin.Core.Models
                         RowOffset = item.StartRow - anchorRow,
                         ColumnOffset = item.StartColumn - anchorColumn,
                         RowCount = item.RowCount,
-                        ColumnCount = item.ColumnCount
+                        ColumnCount = item.ColumnCount,
+                        Formulas = (item.Formulas ?? new List<List<string>>())
+                            .Select(row => row?.ToList() ?? new List<string>())
+                            .ToList()
                     })
                     .OrderBy(item => item.RowOffset)
                     .ThenBy(item => item.ColumnOffset)

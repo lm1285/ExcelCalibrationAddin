@@ -36,7 +36,105 @@ namespace ExcelCalibrationAddin.Host.Services
 
                 RefreshFormulaClassification(sheet, rule, rule.ErrorFormula);
                 AlignStandardValueSourceToFormula(sheet, rule, rule.ErrorFormula);
+                RefreshFormulaDependencies(snapshot, rule, rule.ErrorFormula);
+                ApplyAdditionalJudgementConstraints(snapshot, sheet, rule);
             }
+        }
+
+        private static void ApplyAdditionalJudgementConstraints(
+            WorkbookSnapshot snapshot,
+            SheetSnapshot sheet,
+            MeasurementRule rule)
+        {
+            if (rule == null || (rule.AdditionalJudgementConstraints ?? new List<MeasurementJudgementConstraint>()).Count == 0)
+            {
+                return;
+            }
+
+            var original = MeasurementJudgementConstraintHelper.Capture(rule, null);
+            var resolvedConstraints = new List<MeasurementJudgementConstraint>();
+            foreach (var constraint in rule.AdditionalJudgementConstraints)
+            {
+                if (constraint == null)
+                {
+                    continue;
+                }
+
+                MeasurementJudgementConstraintHelper.Overlay(rule, constraint);
+                if (!HasTemplateFormulaInfo(rule.ErrorFormula))
+                {
+                    rule.ErrorFormula = HasBaseFormulaInfo(rule.ErrorFormula)
+                        ? rule.ErrorFormula
+                        : ResolveErrorFormula(sheet, rule);
+                    ApplySupplementalFormulaInfo(sheet, rule, rule.ErrorFormula);
+                }
+
+                RefreshFormulaClassification(sheet, rule, rule.ErrorFormula);
+                RefreshFormulaDependencies(snapshot, rule, rule.ErrorFormula);
+                resolvedConstraints.Add(MeasurementJudgementConstraintHelper.Capture(rule, constraint));
+            }
+
+            MeasurementJudgementConstraintHelper.Overlay(rule, original);
+            rule.AdditionalJudgementConstraints = resolvedConstraints;
+        }
+
+        private static void RefreshFormulaDependencies(
+            WorkbookSnapshot snapshot,
+            MeasurementRule rule,
+            ErrorFormulaInfo info)
+        {
+            if (info == null)
+            {
+                return;
+            }
+
+            var fallbackSheetName = rule?.TargetRange?.SheetName ??
+                rule?.ErrorSource?.Range?.SheetName ?? string.Empty;
+            info.DependencyRanges = new[]
+                {
+                    info.Formula,
+                    info.AverageFormula,
+                    info.TechnicalRequirementFormula,
+                    info.UncertaintyFormula,
+                    info.ResultFormula
+                }
+                .Where(formula => !string.IsNullOrWhiteSpace(formula))
+                .SelectMany(formula => TemplateFormulaParser.ExtractReferencedRanges(formula, fallbackSheetName))
+                .Concat(new[]
+                {
+                    info.Formula,
+                    info.AverageFormula,
+                    info.TechnicalRequirementFormula,
+                    info.UncertaintyFormula,
+                    info.ResultFormula
+                }
+                .Where(formula => !string.IsNullOrWhiteSpace(formula))
+                .SelectMany(formula => TemplateFormulaParser.ExtractNamedRangeReferences(formula, snapshot?.NamedRanges)))
+                .Where(range => range != null && !string.IsNullOrWhiteSpace(range.SheetName))
+                .GroupBy(range => string.Join(":", new[]
+                {
+                    range.SheetName.ToUpperInvariant(),
+                    range.StartRow.ToString(CultureInfo.InvariantCulture),
+                    range.StartColumn.ToString(CultureInfo.InvariantCulture),
+                    range.EndRow.ToString(CultureInfo.InvariantCulture),
+                    range.EndColumn.ToString(CultureInfo.InvariantCulture)
+                }))
+                .Select(group => group.First())
+                .ToList();
+            info.UnresolvedDependencies = new[]
+                {
+                    info.Formula,
+                    info.AverageFormula,
+                    info.TechnicalRequirementFormula,
+                    info.UncertaintyFormula,
+                    info.ResultFormula
+                }
+                .Where(formula => !string.IsNullOrWhiteSpace(formula))
+                .SelectMany(formula => TemplateFormulaParser.FindUnresolvedDependencies(
+                    formula,
+                    (snapshot?.NamedRanges ?? new List<NamedRangeDefinition>()).Select(item => item?.Name)))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         private static void RefreshFormulaClassification(
@@ -49,13 +147,23 @@ namespace ExcelCalibrationAddin.Host.Services
                 return;
             }
 
+            string classificationFormula;
+            var usedActiveBranch = TemplateFormulaParser.TryResolveActiveValueExpression(
+                sheet,
+                info.Formula,
+                out classificationFormula);
+            if (!usedActiveBranch)
+            {
+                classificationFormula = info.Formula;
+            }
+
             var references = ExtractReferences(info.Formula);
             info.ReferencesMeasurement = references.Any(reference => RangeContains(rule.TargetRange, reference.Row, reference.Column));
             info.ReferencesStandardValue = references.Any(reference => RangeContains(rule.StandardValueSource?.Range, reference.Row, reference.Column));
             info.ReferencesAverage = references.Any(reference => RangeContains(rule.AverageSource?.Range, reference.Row, reference.Column));
-            info.FormulaMultipliesBy100 = FormulaMultipliesBy100(info.Formula);
-            info.FormulaDividesByReferenceRange = FormulaDividesByRange(info.Formula, rule.RangeSource?.Range);
-            info.Scale = ResolveFormulaScale(sheet, rule, info);
+            info.FormulaMultipliesBy100 = FormulaMultipliesBy100(classificationFormula);
+            info.FormulaDividesByReferenceRange = FormulaDividesByRange(classificationFormula, rule.RangeSource?.Range);
+            info.Scale = ResolveFormulaScale(sheet, rule, info, classificationFormula, usedActiveBranch);
         }
 
         private static void AlignStandardValueSourceToFormula(
@@ -191,9 +299,19 @@ namespace ExcelCalibrationAddin.Host.Services
             info.ReferencesMeasurement = references.Any(reference => RangeContains(rule.TargetRange, reference.Row, reference.Column));
             info.ReferencesStandardValue = references.Any(reference => RangeContains(rule.StandardValueSource?.Range, reference.Row, reference.Column));
             info.ReferencesAverage = references.Any(reference => RangeContains(rule.AverageSource?.Range, reference.Row, reference.Column));
-            info.FormulaMultipliesBy100 = FormulaMultipliesBy100(info.Formula);
-            info.FormulaDividesByReferenceRange = FormulaDividesByRange(info.Formula, rule.RangeSource?.Range);
-            info.Scale = ResolveFormulaScale(sheet, rule, info);
+            string classificationFormula;
+            var usedActiveBranch = TemplateFormulaParser.TryResolveActiveValueExpression(
+                sheet,
+                info.Formula,
+                out classificationFormula);
+            if (!usedActiveBranch)
+            {
+                classificationFormula = info.Formula;
+            }
+
+            info.FormulaMultipliesBy100 = FormulaMultipliesBy100(classificationFormula);
+            info.FormulaDividesByReferenceRange = FormulaDividesByRange(classificationFormula, rule.RangeSource?.Range);
+            info.Scale = ResolveFormulaScale(sheet, rule, info, classificationFormula, usedActiveBranch);
 
             if (info.ReferencesAverage && rule.AverageSource?.Range != null)
             {
@@ -247,8 +365,26 @@ namespace ExcelCalibrationAddin.Host.Services
                 .FirstOrDefault(formula => !string.IsNullOrWhiteSpace(formula)) ?? string.Empty;
         }
 
-        private static ErrorFormulaScale ResolveFormulaScale(SheetSnapshot sheet, MeasurementRule rule, ErrorFormulaInfo info)
+        private static ErrorFormulaScale ResolveFormulaScale(
+            SheetSnapshot sheet,
+            MeasurementRule rule,
+            ErrorFormulaInfo info,
+            string classificationFormula,
+            bool usedActiveBranch)
         {
+            if (usedActiveBranch)
+            {
+                if (info.FormulaDividesByReferenceRange)
+                {
+                    return ErrorFormulaScale.RelativeToReferenceRange;
+                }
+
+                if (LooksLikeRelativeFormula(classificationFormula))
+                {
+                    return ErrorFormulaScale.RelativeToStandardValue;
+                }
+            }
+
             // The requirement cell is the authoritative signal for conditional
             // formulas whose active branch changes both tolerance and unit.
             var requirementScale = ResolveScaleFromContext(CollectRangeContext(sheet, rule?.MpeSource?.Range));
@@ -268,7 +404,7 @@ namespace ExcelCalibrationAddin.Host.Services
                 return ErrorFormulaScale.RelativeToReferenceRange;
             }
 
-            if (LooksLikeRelativeFormula(info.Formula))
+            if (LooksLikeRelativeFormula(classificationFormula))
             {
                 return ErrorFormulaScale.RelativeToStandardValue;
             }

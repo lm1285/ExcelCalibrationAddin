@@ -88,6 +88,14 @@ namespace ExcelCalibrationAddin.Host.Services
                     measurementRange,
                     averageRange);
 
+                errorRange = errorRange ?? _errorRangeDetector.Infer(
+                    sheet,
+                    startRow,
+                    endRow,
+                    measurementRange,
+                    averageRange,
+                    standardRange);
+
                 if (RangesOverlap(errorRange, measurementRange) ||
                     RangesOverlap(errorRange, averageRange) ||
                     RangesOverlap(errorRange, standardRange))
@@ -138,6 +146,21 @@ namespace ExcelCalibrationAddin.Host.Services
                     ?? InferRangeFromLayout(sheet, headerBand, endRow, RangeKeywords, technicalRange, uncertaintyRange, errorRange);
                 var resultRange = FindDataRange(sheet, startRow, endRow, ResultKeywords)
                     ?? InferRangeFromLayout(sheet, headerBand, endRow, ResultKeywords, uncertaintyRange, technicalRange, errorRange);
+                var additionalJudgementConstraints = BuildAdditionalJudgementConstraints(
+                    sheet,
+                    startRow,
+                    endRow,
+                    field.Alias,
+                    headerBand,
+                    errorRange,
+                    technicalRange,
+                    resultRange,
+                    standardRange,
+                    measurementRange,
+                    averageRange,
+                    uncertaintyRange,
+                    rangeValueRange,
+                    setpointRange);
 
                 var normalizedMapping = TemplateRegionMappingNormalizer.Normalize(sheet, new TemplateRegionMapping
                 {
@@ -159,6 +182,7 @@ namespace ExcelCalibrationAddin.Host.Services
                     UncertaintyRange = uncertaintyRange,
                     RangeValueRange = rangeValueRange,
                     ResultRange = resultRange,
+                    AdditionalJudgementConstraints = additionalJudgementConstraints,
                     Notes = BuildNotes(sheet, startRow, endRow)
                 });
 

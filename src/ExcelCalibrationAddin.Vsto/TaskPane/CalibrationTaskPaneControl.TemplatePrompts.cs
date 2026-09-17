@@ -145,7 +145,7 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		domainComboBox.SelectedIndex = existingIndex;
 	}
 
-	private static string PromptText(string title, string labelText)
+	private static string PromptText(string title, string labelText, string initialText = null)
 	{
 		using (Form form = new Form())
 		using (Label label = new Label())
@@ -162,6 +162,8 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 			label.Text = labelText;
 			label.SetBounds(18, 18, 294, 22);
 			textBox.SetBounds(18, 44, 294, 24);
+			textBox.Text = initialText ?? string.Empty;
+			textBox.SelectAll();
 			confirmButton.Text = "确定";
 			confirmButton.DialogResult = DialogResult.OK;
 			confirmButton.SetBounds(150, 88, 76, 28);

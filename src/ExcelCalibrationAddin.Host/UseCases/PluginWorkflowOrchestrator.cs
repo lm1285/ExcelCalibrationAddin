@@ -79,6 +79,11 @@ namespace ExcelCalibrationAddin.Host.UseCases
             return _generationUseCase.Write(rules);
         }
 
+        public void SetSampleDataPoints(IEnumerable<SampleDataPoint> points)
+        {
+            _generationUseCase.SetSampleDataPoints(points);
+        }
+
         public GenerationWriteResult WriteGeneration(IReadOnlyList<MeasurementRule> rules, GenerationConfiguration generationConfiguration)
         {
             _generationUseCase.SetGenerationConfiguration(generationConfiguration);

@@ -9,13 +9,16 @@ using ExcelCalibrationAddin.Host.Recognition;
 
 namespace ExcelCalibrationAddin.Host.Services
 {
-    internal static class TemplateFormulaParser
+    internal static partial class TemplateFormulaParser
     {
         private static readonly Regex ReferenceRegex = new Regex(
             @"(?:(?:'(?<quotedSheet>[^']+)'|(?<sheet>[A-Za-z0-9_一-鿿]+))!)?(?<start>\$?[A-Z]{1,3}\$?\d+)(?::(?<end>\$?[A-Z]{1,3}\$?\d+))?",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex NumberRegex = new Regex(
             @"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?",
+            RegexOptions.Compiled);
+        private static readonly Regex IdentifierRegex = new Regex(
+            @"(?<![A-Za-z0-9_])(?<name>[A-Za-z_\\\u4e00-\u9fff][A-Za-z0-9_.\\\u4e00-\u9fff]*)(?![A-Za-z0-9_])",
             RegexOptions.Compiled);
 
         public static TemplateFormulaDefinition Parse(
@@ -62,6 +65,7 @@ namespace ExcelCalibrationAddin.Host.Services
             var masked = MaskStringLiterals(formula);
             return ReferenceRegex.Matches(masked)
                 .Cast<Match>()
+                .Where(match => !IsExternalWorkbookReference(masked, match))
                 .Select(match => BuildReference(match, fallbackSheetName, roleRanges))
                 .Where(reference => reference != null)
                 .GroupBy(reference => reference.Token, StringComparer.OrdinalIgnoreCase)
@@ -88,6 +92,10 @@ namespace ExcelCalibrationAddin.Host.Services
                 : match.Groups["sheet"].Success
                     ? match.Groups["sheet"].Value
                     : fallbackSheetName ?? string.Empty;
+            if (sheetName.IndexOf('[') >= 0)
+            {
+                return null;
+            }
             var range = new CellRange
             {
                 SheetName = sheetName,
@@ -325,6 +333,118 @@ namespace ExcelCalibrationAddin.Host.Services
             }
 
             return builder.ToString();
+        }
+
+        private static bool IsExternalWorkbookReference(string formula, Match match)
+        {
+            if (match == null || string.IsNullOrWhiteSpace(formula))
+            {
+                return false;
+            }
+
+            if (match.Value.IndexOf('[') >= 0)
+            {
+                return true;
+            }
+
+            var prefix = formula.Substring(0, Math.Min(match.Index, formula.Length));
+            var lastClosingBracket = prefix.LastIndexOf(']');
+            if (lastClosingBracket < 0)
+            {
+                return false;
+            }
+
+            var lastBoundary = Math.Max(
+                Math.Max(prefix.LastIndexOf('+'), prefix.LastIndexOf('-')),
+                Math.Max(prefix.LastIndexOf('*'), prefix.LastIndexOf('/')));
+            lastBoundary = Math.Max(lastBoundary, Math.Max(prefix.LastIndexOf(','), prefix.LastIndexOf(';')));
+            lastBoundary = Math.Max(lastBoundary, prefix.LastIndexOf('('));
+            return lastClosingBracket > lastBoundary;
+        }
+
+        public static IReadOnlyList<string> FindUnresolvedDependencies(
+            string formula,
+            IEnumerable<string> resolvedNames = null)
+        {
+            var unresolved = new List<string>();
+            var masked = MaskStringLiterals(formula);
+            if (string.IsNullOrWhiteSpace(masked))
+            {
+                return unresolved;
+            }
+
+            if (Regex.IsMatch(masked, @"\[[^\]]+\][^!]*!", RegexOptions.IgnoreCase))
+            {
+                unresolved.Add("外部工作簿引用");
+            }
+
+            foreach (Match match in Regex.Matches(masked, @"\b(INDIRECT|OFFSET)\s*\(", RegexOptions.IgnoreCase))
+            {
+                unresolved.Add("动态引用函数: " + match.Groups[1].Value.ToUpperInvariant());
+            }
+
+            var withoutExternal = Regex.Replace(masked, @"(?:'[^']*\[[^\]]+\][^']*'|[^\s,()+\-*/]*\[[^\]]+\][^!\s]*)!", " ");
+            var structuredMatches = Regex.Matches(
+                withoutExternal,
+                @"\b(?<table>[A-Za-z_][A-Za-z0-9_.]*)\s*\[[^\]]+\]",
+                RegexOptions.IgnoreCase);
+            foreach (Match match in structuredMatches)
+            {
+                unresolved.Add("结构化引用: " + match.Value.Trim());
+            }
+
+            var identifierSource = Regex.Replace(withoutExternal, @"\b[A-Za-z_][A-Za-z0-9_.]*\s*\[[^\]]+\]", " ");
+            identifierSource = ReferenceRegex.Replace(identifierSource, " ");
+            var knownNames = new HashSet<string>(resolvedNames ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+            foreach (Match match in IdentifierRegex.Matches(identifierSource))
+            {
+                var name = match.Groups["name"].Value;
+                var nextIndex = match.Index + match.Length;
+                while (nextIndex < identifierSource.Length && char.IsWhiteSpace(identifierSource[nextIndex])) nextIndex++;
+                if (nextIndex < identifierSource.Length &&
+                    (identifierSource[nextIndex] == '(' || identifierSource[nextIndex] == '!'))
+                {
+                    continue;
+                }
+
+                if (string.Equals(name, "TRUE", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(name, "FALSE", StringComparison.OrdinalIgnoreCase) ||
+                    knownNames.Contains(name))
+                {
+                    continue;
+                }
+
+                unresolved.Add("命名区域或标识符: " + name);
+            }
+
+            return unresolved.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        public static IReadOnlyList<CellRange> ExtractNamedRangeReferences(
+            string formula,
+            IEnumerable<NamedRangeDefinition> namedRanges)
+        {
+            var masked = MaskStringLiterals(formula);
+            if (string.IsNullOrWhiteSpace(masked))
+            {
+                return new List<CellRange>();
+            }
+
+            return (namedRanges ?? Enumerable.Empty<NamedRangeDefinition>())
+                .Where(item => item?.Range != null && !string.IsNullOrWhiteSpace(item.Name))
+                .Where(item => Regex.IsMatch(
+                    masked,
+                    @"(?<![A-Za-z0-9_])" + Regex.Escape(item.Name) + @"(?![A-Za-z0-9_])",
+                    RegexOptions.IgnoreCase))
+                .Select(item => new CellRange
+                {
+                    SheetName = item.Range.SheetName,
+                    StartRow = item.Range.StartRow,
+                    StartColumn = item.Range.StartColumn,
+                    EndRow = item.Range.EndRow,
+                    EndColumn = item.Range.EndColumn
+                })
+                .ToList();
         }
 
         private static CellAddress ParseCellReference(string value)

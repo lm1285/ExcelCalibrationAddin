@@ -64,6 +64,7 @@ namespace ExcelCalibrationAddin.Host.Recognition
                 RangeSource = BuildParameterSource("\u91CF\u7A0B", mapping.RangeValueRange),
                 UncertaintySource = BuildParameterSource("\u4E0D\u786E\u5B9A\u5EA6", mapping.UncertaintyRange),
                 ResultSource = BuildParameterSource("\u7ED3\u8BBA", mapping.ResultRange),
+                AdditionalJudgementConstraints = CloneJudgementConstraints(mapping.AdditionalJudgementConstraints),
                 WritableCells = writableCells,
                 GroupSize = writableCells.Count > 0
                     ? writableCells.Count
@@ -71,6 +72,12 @@ namespace ExcelCalibrationAddin.Host.Recognition
             };
             rule.TemplateDefinition = _templateDefinitionBuilder.Build(sheet, mapping);
             return rule;
+        }
+
+        private static List<MeasurementJudgementConstraint> CloneJudgementConstraints(
+            IEnumerable<MeasurementJudgementConstraint> constraints)
+        {
+            return MeasurementRuleCloner.CloneJudgementConstraints(constraints);
         }
 
         private static ParameterSource BuildParameterSource(string name, CellRange range)

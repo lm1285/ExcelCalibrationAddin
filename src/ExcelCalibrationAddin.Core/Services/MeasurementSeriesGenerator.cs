@@ -84,45 +84,23 @@ namespace ExcelCalibrationAddin.Core.Services
         }
 
         public List<double> GenerateResponseTimeValues(
-            double standardValue,
-            double mpe,
+            double requirement,
+            TechnicalRequirementOperator requirementOperator,
             int valueCount,
             int decimalPlaces,
-            GenerationConfiguration configuration,
-            double? measurementLowerBound = null,
-            double? measurementUpperBound = null)
+            GenerationConfiguration configuration)
         {
-            var upperLimit = Math.Abs(mpe);
-            var normalizedConfiguration = new GenerationConfigurationStore().Normalize(configuration);
-            var maximumSpread = upperLimit <= normalizedConfiguration.ResponseTimeThresholdSeconds
-                ? normalizedConfiguration.ResponseTimeBelowThresholdMaximumDifferenceSeconds
-                : normalizedConfiguration.ResponseTimeAboveThresholdMaximumDifferenceSeconds;
-            var center = Math.Max(0d, standardValue);
-            if (measurementLowerBound.HasValue)
-            {
-                center = Math.Max(center, measurementLowerBound.Value);
-            }
-            if (measurementUpperBound.HasValue)
-            {
-                center = Math.Min(center, measurementUpperBound.Value);
-            }
-
-            var minimum = Math.Max(0d, center - (maximumSpread / 2d));
-            var maximum = center + (maximumSpread / 2d);
-            if (measurementLowerBound.HasValue)
-            {
-                minimum = Math.Max(minimum, measurementLowerBound.Value);
-            }
-            if (measurementUpperBound.HasValue)
-            {
-                maximum = Math.Min(maximum, measurementUpperBound.Value);
-            }
+            var threshold = Math.Abs(requirement);
+            var isLowerBound = requirementOperator == TechnicalRequirementOperator.GreaterThan ||
+                requirementOperator == TechnicalRequirementOperator.GreaterThanOrEqual;
+            var minimum = threshold * (isLowerBound ? 1.2d : 0.25d);
+            var maximum = threshold * (isLowerBound ? 1.4d : 0.35d);
             var values = new List<double>(valueCount);
 
             for (var index = 0; index < valueCount; index++)
             {
                 values.Add(RoundToResolution(
-                    NextMagnitude(ResolveDistributionMode(configuration), minimum, maximum),
+                    NextMagnitude(DistributionMode.TruncatedNormal, minimum, maximum),
                     decimalPlaces));
             }
 

@@ -202,6 +202,7 @@ namespace ExcelCalibrationAddin.Core.Services
             }
 
             if (input.ValueCount <= 1 ||
+                (input.ValueCount <= 3 && !input.RequireVisibleVariation) ||
                 HasVisibleVariation(result, input))
             {
                 return result;

@@ -72,6 +72,33 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		NotifyGenerationStateChanged();
 	}
 
+	private void RenameCalibrationItem(int rowIndex)
+	{
+		if (_featuresBlocked || rowIndex < 0 || rowIndex >= _currentMappings.Count)
+		{
+			return;
+		}
+
+		var currentName = _currentMappings[rowIndex].ProjectName ?? string.Empty;
+		var newName = PromptText("重命名校准项", "校准项名称", currentName);
+		if (string.IsNullOrWhiteSpace(newName) || string.Equals(currentName, newName, StringComparison.Ordinal))
+		{
+			return;
+		}
+
+		_currentMappings[rowIndex].ProjectName = newName;
+		var rule = GetRule(rowIndex);
+		if (rule != null)
+		{
+			rule.FieldName = newName;
+			rule.FieldAlias = newName;
+		}
+		_hasUnsavedChanges = true;
+		BindMappings();
+		UpdateTemplateLibraryButtons();
+		NotifyGenerationStateChanged();
+	}
+
 	private async void SaveTemplateButton_Click(object sender, EventArgs e)
 	{
 		if (_isEditingSavedTemplate)

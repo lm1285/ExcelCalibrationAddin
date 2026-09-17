@@ -57,6 +57,47 @@ namespace ExcelCalibrationAddin.Host.UseCases
             double? anchorError,
             IReadOnlyList<int> decimalPlacesByValue)
         {
+            List<double> sampleValues;
+            int sampleDecimalPlaces;
+            if (_sampleDataPoints.Count > 0 &&
+                _sampleDistributionService.TryGenerate(
+                    _sampleDataPoints,
+                    GenerationRuleValidator.ResolveRuleName(rule),
+                    standardValue,
+                    valueCount,
+                    out sampleValues,
+                    out sampleDecimalPlaces))
+            {
+                var sampleDecimalPlacesByValue = Enumerable.Range(0, sampleValues.Count)
+                    .Select(index => decimalPlacesByValue != null && index < decimalPlacesByValue.Count
+                        ? decimalPlacesByValue[index]
+                        : rule.FormatRule?.DecimalPlaces ?? sampleDecimalPlaces)
+                    .ToList();
+                var roundedSamples = sampleValues
+                    .Select((value, index) => Math.Round(value, sampleDecimalPlacesByValue[index]))
+                    .ToList();
+                var requiresVariation = RequiresMeasurementDispersion(rule, valueCount);
+                if (AreMeasurementValuesValid(rule, standardValue, roundedSamples) &&
+                    (!requiresVariation || roundedSamples.Distinct().Count() > 1))
+                {
+                    try
+                    {
+                        var formulaError = CalculateFormulaError(rule, standardValue, roundedSamples);
+                        ValidateGeneratedErrors(rule, standardValue, roundedSamples);
+                        ValidateConfiguredErrorUsage(rule, standardValue, formulaError);
+                        var direction = Math.Sign(roundedSamples.Average() - standardValue);
+                        return BuildGenerationResult(
+                            roundedSamples,
+                            sampleDecimalPlacesByValue,
+                            direction);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // The selected sample is advisory; current template constraints remain authoritative.
+                    }
+                }
+            }
+
             return generator.Generate(new MeasurementGenerationInput
             {
                 StandardValue = standardValue,
@@ -72,6 +113,7 @@ namespace ExcelCalibrationAddin.Host.UseCases
                 DecimalPlacesByValue = decimalPlacesByValue?.ToList() ?? new List<int>(),
                 ForcePositiveDirection = rule.PositiveDirectionOnly || forcedDirection > 0,
                 ForceNegativeDirection = rule.NegativeDirectionOnly || forcedDirection < 0,
+                RequireVisibleVariation = RequiresMeasurementDispersion(rule, valueCount),
                 AnchorError = anchorError,
                 CoefficientOverride = rule.GenerationCoefficientOverride,
                 MeasurementLowerBound = rule.MeasurementLowerBound,
@@ -215,6 +257,37 @@ namespace ExcelCalibrationAddin.Host.UseCases
         }
 
         private static void ValidateGeneratedError(MeasurementRule rule, double standardValue, double error)
+        {
+            ValidateGeneratedErrorForConstraint(rule, standardValue, error);
+        }
+
+        private static void ValidateGeneratedErrors(
+            MeasurementRule rule,
+            double standardValue,
+            IReadOnlyList<double> writtenValues)
+        {
+            ValidateGeneratedErrorForConstraint(
+                rule,
+                standardValue,
+                CalculateFormulaError(rule, standardValue, writtenValues));
+            foreach (var constraint in rule?.AdditionalJudgementConstraints ?? new List<MeasurementJudgementConstraint>())
+            {
+                if (constraint == null)
+                {
+                    continue;
+                }
+
+                var overlay = MeasurementRuleCloner.Clone(rule);
+                overlay.AdditionalJudgementConstraints = new List<MeasurementJudgementConstraint>();
+                MeasurementJudgementConstraintHelper.Overlay(overlay, constraint);
+                ValidateGeneratedErrorForConstraint(
+                    overlay,
+                    standardValue,
+                    CalculateFormulaError(overlay, standardValue, writtenValues));
+            }
+        }
+
+        private static void ValidateGeneratedErrorForConstraint(MeasurementRule rule, double standardValue, double error)
         {
             var allowedMagnitude = ResolveAllowedFormulaErrorMagnitude(rule, standardValue);
             if (allowedMagnitude.HasValue && IsRequirementSatisfied(rule.RequirementOperator, error, allowedMagnitude.Value))

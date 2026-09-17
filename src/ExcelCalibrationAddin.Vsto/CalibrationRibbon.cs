@@ -97,18 +97,16 @@ namespace ExcelCalibrationAddin.Vsto
         {
             var fieldName = (cboOverrideRule.Text ?? string.Empty).Trim();
             var rangeText = (edtOverrideRange.Text ?? string.Empty).Trim();
-            var decimalsText = (edtOverrideDecimals.Text ?? string.Empty).Trim();
             var alarmValueText = (edtAlarmValue.Text ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(fieldName) &&
                 string.IsNullOrWhiteSpace(rangeText) &&
-                string.IsNullOrWhiteSpace(decimalsText) &&
                 string.IsNullOrWhiteSpace(alarmValueText))
             {
                 return null;
             }
 
             if (string.IsNullOrWhiteSpace(fieldName) &&
-                (!string.IsNullOrWhiteSpace(rangeText) || !string.IsNullOrWhiteSpace(decimalsText)))
+                !string.IsNullOrWhiteSpace(rangeText))
             {
                 throw new InvalidOperationException("请先选择需要临时配置的校准项。");
             }
@@ -122,19 +120,6 @@ namespace ExcelCalibrationAddin.Vsto
             if (!string.IsNullOrWhiteSpace(rangeText))
             {
                 generationOverride.CoefficientOverride = ParseCoefficientOverride(rangeText);
-            }
-
-            if (!string.IsNullOrWhiteSpace(decimalsText))
-            {
-                int decimalPlaces;
-                if (!int.TryParse(decimalsText, NumberStyles.Integer, CultureInfo.CurrentCulture, out decimalPlaces) ||
-                    decimalPlaces < 0 ||
-                    decimalPlaces > 15)
-                {
-                    throw new InvalidOperationException("小数位数必须是 0 到 15 之间的整数。");
-                }
-
-                generationOverride.DecimalPlaces = decimalPlaces;
             }
 
             return generationOverride;

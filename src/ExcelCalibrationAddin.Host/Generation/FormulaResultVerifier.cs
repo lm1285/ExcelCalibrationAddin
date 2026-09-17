@@ -31,6 +31,19 @@ namespace ExcelCalibrationAddin.Host.Generation
                 {
                     VerifyRule(snapshot, rule);
                 }
+
+                foreach (var constraint in rule.AdditionalJudgementConstraints ?? new List<MeasurementJudgementConstraint>())
+                {
+                    if (constraint?.ErrorFormula?.HasFormula != true)
+                    {
+                        continue;
+                    }
+
+                    var overlay = MeasurementRuleCloner.Clone(rule);
+                    overlay.AdditionalJudgementConstraints = new List<MeasurementJudgementConstraint>();
+                    MeasurementJudgementConstraintHelper.Overlay(overlay, constraint);
+                    VerifyRule(snapshot, overlay);
+                }
             }
         }
 
@@ -58,6 +71,18 @@ namespace ExcelCalibrationAddin.Host.Generation
             }
 
             var bounds = ResolveFormulaResultBounds(rule);
+            var requirementOperator = GenerationRuleValidator.IsUpperLimitRule(rule)
+                ? GenerationRuleValidator.ResolveUpperLimitOperator(rule)
+                : rule.RequirementOperator;
+            if (GenerationRuleValidator.IsUpperLimitRule(rule))
+            {
+                bounds = (
+                    requirementOperator == TechnicalRequirementOperator.GreaterThan ||
+                    requirementOperator == TechnicalRequirementOperator.GreaterThanOrEqual
+                        ? Math.Abs(rule.FixedMpe.GetValueOrDefault())
+                        : 0,
+                    Math.Abs(rule.FixedMpe.GetValueOrDefault()));
+            }
             foreach (var cell in formulaCells)
             {
                 if (string.IsNullOrWhiteSpace(cell.Formula))
@@ -84,8 +109,8 @@ namespace ExcelCalibrationAddin.Host.Generation
                         $"“{GenerationRuleValidator.ResolveRuleName(rule)}”生成后误差在 R{cell.Row}C{cell.Column} 的当前分辨力下显示为 0。");
                 }
 
-                if (!IsRequirementSatisfied(rule.RequirementOperator, value, bounds) &&
-                    (rule.RequirementOperator != TechnicalRequirementOperator.None ||
+                if (!IsRequirementSatisfied(requirementOperator, value, bounds) &&
+                    (requirementOperator != TechnicalRequirementOperator.None ||
                      value < bounds.lower - 1e-12 || value > bounds.upper + 1e-12))
                 {
                     throw new InvalidOperationException($"“{GenerationRuleValidator.ResolveRuleName(rule)}”生成后 Excel 公式结果超出技术要求。");

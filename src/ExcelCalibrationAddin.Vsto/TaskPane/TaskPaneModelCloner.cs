@@ -23,6 +23,7 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
                     UncertaintyRange = CloneRange(item.UncertaintyRange),
                     RangeValueRange = CloneRange(item.RangeValueRange),
                     ResultRange = CloneRange(item.ResultRange),
+                    AdditionalJudgementConstraints = MeasurementRuleCloner.CloneJudgementConstraints(item.AdditionalJudgementConstraints),
                     Notes = item.Notes
                 })
                 .ToList();

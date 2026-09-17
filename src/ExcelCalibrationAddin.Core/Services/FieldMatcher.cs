@@ -13,8 +13,24 @@ namespace ExcelCalibrationAddin.Core.Services
         // normal repeated item blocks at the first dozen.
         private const int MaxSectionsPerSheet = 100;
 
-        private static readonly Regex SectionTitleRegex = new Regex(
-            @"^\s*[一二三四五六七八九十\d]+\s*[、.)．\-]\s*.+",
+        private static readonly Regex NumericChildTitleRegex = new Regex(
+            @"^\s*(?<number>(?>\d+(?:\s*\.\s*\d+)+))\s*(?:[、)）.,，\-:：]|\s+)\s*(?<title>.+?)\s*$",
+            RegexOptions.Compiled);
+
+        private static readonly Regex NumericTopLevelTitleRegex = new Regex(
+            @"^\s*(?<number>\d+)\s*[、)）.,，\-:：]\s*(?<title>.+?)\s*$",
+            RegexOptions.Compiled);
+
+        private static readonly Regex ChineseTopLevelTitleRegex = new Regex(
+            @"^\s*(?<number>[一二三四五六七八九十]+)\s*[、)）.,，\-:：]\s*(?<title>.+?)\s*$",
+            RegexOptions.Compiled);
+
+        private static readonly Regex NumericChildNumberOnlyRegex = new Regex(
+            @"^\s*(?<number>(?>\d+(?:\s*\.\s*\d+)+))\s*[、)）.,，\-:：]?\s*$",
+            RegexOptions.Compiled);
+
+        private static readonly Regex TopLevelNumberOnlyRegex = new Regex(
+            @"^\s*(?:\d+|[一二三四五六七八九十]+)\s*[、)）.,，\-:：]\s*$",
             RegexOptions.Compiled);
 
         private static readonly string[] MeasurementKeywords =
@@ -40,11 +56,22 @@ namespace ExcelCalibrationAddin.Core.Services
 
         public List<RecognizedField> MatchMeasurementFields(SheetSnapshot sheet)
         {
-            var sectionFields = BuildSectionFields(sheet);
-            return sectionFields.Count > 0 ? sectionFields : BuildHeaderFallbackFields(sheet);
+            var numberedFields = BuildNumberedSectionFields(sheet);
+            if (numberedFields.Count > 0)
+            {
+                return numberedFields;
+            }
+
+            var unnumberedFields = BuildUnnumberedSectionFields(sheet);
+            return unnumberedFields.Count > 0 ? unnumberedFields : BuildHeaderFallbackFields(sheet);
         }
 
-        private static List<RecognizedField> BuildSectionFields(SheetSnapshot sheet)
+        public static bool IsNumberedSectionTitleText(string text)
+        {
+            return TryParseNumberedSectionTitle(text, out _, out _);
+        }
+
+        private static List<RecognizedField> BuildNumberedSectionFields(SheetSnapshot sheet)
         {
             var rows = sheet.Cells
                 .GroupBy(cell => cell.Row)
@@ -52,12 +79,11 @@ namespace ExcelCalibrationAddin.Core.Services
                 .ToList();
 
             var sectionMarkers = rows
-                .Select(group => FindSectionMarker(group.ToList()))
+                .Select(group => FindNumberedSectionMarker(group.ToList()))
                 .Where(marker => marker != null)
                 .GroupBy(marker => marker.Row)
                 .Select(group => group.First())
                 .OrderBy(marker => marker.Row)
-                .Take(MaxSectionsPerSheet)
                 .ToList();
 
             if (sectionMarkers.Count == 0)
@@ -67,33 +93,99 @@ namespace ExcelCalibrationAddin.Core.Services
 
             var maxColumn = sheet.Cells.Count == 0 ? 1 : sheet.Cells.Max(cell => cell.Column);
             var fields = new List<RecognizedField>();
+            var topLevelMarkers = sectionMarkers.Where(marker => marker.Level == 1).ToList();
 
-            for (var index = 0; index < sectionMarkers.Count; index++)
+            if (topLevelMarkers.Count == 0)
             {
-                var marker = sectionMarkers[index];
-                var nextRow = index + 1 < sectionMarkers.Count
-                    ? sectionMarkers[index + 1].Row
-                    : InferLastContentRowExcludingTrailingNotes(sheet, marker.Row) + 1;
-                var sectionEndRow = Math.Max(marker.Row, nextRow - 1);
-                var alias = CleanSectionTitle(marker.Text);
-
-                fields.Add(new RecognizedField
+                foreach (var marker in sectionMarkers)
                 {
-                    Alias = alias,
-                    Score = ScoreSection(alias),
-                    Reason = $"按项目块识别：{alias}",
-                    Range = new CellRange
-                    {
-                        SheetName = sheet.Name,
-                        StartRow = marker.Row,
-                        EndRow = sectionEndRow,
-                        StartColumn = 1,
-                        EndColumn = maxColumn
-                    }
-                });
+                    fields.Add(BuildSectionField(sheet, sectionMarkers, marker, maxColumn, "按子标题识别"));
+                }
+
+                return fields.Take(MaxSectionsPerSheet).ToList();
             }
 
-            return fields;
+            var firstTopLevelRow = topLevelMarkers[0].Row;
+            foreach (var orphan in sectionMarkers.Where(marker => marker.Level > 1 && marker.Row < firstTopLevelRow))
+            {
+                fields.Add(BuildSectionField(sheet, sectionMarkers, orphan, maxColumn, "按子标题识别"));
+            }
+
+            for (var index = 0; index < topLevelMarkers.Count; index++)
+            {
+                var topLevel = topLevelMarkers[index];
+                var nextTopLevelRow = index + 1 < topLevelMarkers.Count
+                    ? topLevelMarkers[index + 1].Row
+                    : int.MaxValue;
+                var children = sectionMarkers
+                    .Where(marker => marker.Level > 1 && marker.Row > topLevel.Row && marker.Row < nextTopLevelRow)
+                    .ToList();
+
+                if (children.Count == 0)
+                {
+                    fields.Add(BuildSectionField(sheet, sectionMarkers, topLevel, maxColumn, "按大标题识别"));
+                    continue;
+                }
+
+                foreach (var child in children)
+                {
+                    fields.Add(BuildSectionField(sheet, sectionMarkers, child, maxColumn, "按子标题识别"));
+                }
+            }
+
+            return fields
+                .OrderBy(field => field.Range.StartRow)
+                .Take(MaxSectionsPerSheet)
+                .ToList();
+        }
+
+        private static List<RecognizedField> BuildUnnumberedSectionFields(SheetSnapshot sheet)
+        {
+            var markers = sheet.Cells
+                .GroupBy(cell => cell.Row)
+                .OrderBy(group => group.Key)
+                .Select(group => FindUnnumberedSectionMarker(group.ToList()))
+                .Where(marker => marker != null)
+                .GroupBy(marker => marker.Row)
+                .Select(group => group.First())
+                .OrderBy(marker => marker.Row)
+                .ToList();
+            var maxColumn = sheet.Cells.Count == 0 ? 1 : sheet.Cells.Max(cell => cell.Column);
+
+            return markers
+                .Select(marker => BuildSectionField(sheet, markers, marker, maxColumn, "按无编号标题识别"))
+                .Take(MaxSectionsPerSheet)
+                .ToList();
+        }
+
+        private static RecognizedField BuildSectionField(
+            SheetSnapshot sheet,
+            IReadOnlyList<SectionMarker> allMarkers,
+            SectionMarker marker,
+            int maxColumn,
+            string reasonPrefix)
+        {
+            var nextRow = allMarkers
+                .Where(candidate => candidate.Row > marker.Row)
+                .Select(candidate => candidate.Row)
+                .DefaultIfEmpty(InferLastContentRowExcludingTrailingNotes(sheet, marker.Row) + 1)
+                .Min();
+            var alias = CleanSectionTitle(marker.Text);
+
+            return new RecognizedField
+            {
+                Alias = alias,
+                Score = ScoreSection(alias),
+                Reason = $"{reasonPrefix}：{alias}",
+                Range = new CellRange
+                {
+                    SheetName = sheet.Name,
+                    StartRow = marker.Row,
+                    EndRow = Math.Max(marker.Row, nextRow - 1),
+                    StartColumn = 1,
+                    EndColumn = maxColumn
+                }
+            };
         }
 
         private static List<RecognizedField> BuildHeaderFallbackFields(SheetSnapshot sheet)
@@ -125,7 +217,7 @@ namespace ExcelCalibrationAddin.Core.Services
                 .ToList();
         }
 
-        private static SectionMarker FindSectionMarker(List<CellMeta> rowCells)
+        private static SectionMarker FindNumberedSectionMarker(List<CellMeta> rowCells)
         {
             foreach (var cell in rowCells.OrderBy(cell => cell.Column))
             {
@@ -135,12 +227,7 @@ namespace ExcelCalibrationAddin.Core.Services
                     continue;
                 }
 
-                if (!SectionTitleRegex.IsMatch(text) && !LooksLikeUnnumberedSectionTitle(text, rowCells))
-                {
-                    continue;
-                }
-
-                if (!SectionKeywords.Any(keyword => text.Contains(keyword)))
+                if (!TryParseNumberedSectionTitle(text, out var level, out _))
                 {
                     continue;
                 }
@@ -148,11 +235,127 @@ namespace ExcelCalibrationAddin.Core.Services
                 return new SectionMarker
                 {
                     Row = cell.Row,
-                    Text = text
+                    Text = text,
+                    Level = level
+                };
+            }
+
+            return FindSplitNumberedSectionMarker(rowCells);
+        }
+
+        private static SectionMarker FindSplitNumberedSectionMarker(List<CellMeta> rowCells)
+        {
+            var textCells = (rowCells ?? new List<CellMeta>())
+                .Where(cell => !string.IsNullOrWhiteSpace(cell?.Text))
+                .GroupBy(cell => cell.MergeRange?.StartColumn ?? cell.Column)
+                .Select(group => group.OrderBy(cell => cell.Column).First())
+                .OrderBy(cell => cell.MergeRange?.StartColumn ?? cell.Column)
+                .ToList();
+
+            foreach (var numberCell in textCells)
+            {
+                var numberStartColumn = numberCell.MergeRange?.StartColumn ?? numberCell.Column;
+                if (numberStartColumn > 2 || !LooksLikeStandaloneSectionNumber(numberCell.Text))
+                {
+                    continue;
+                }
+
+                var numberEndColumn = numberCell.MergeRange?.EndColumn ?? numberCell.Column;
+                var titleCell = textCells.FirstOrDefault(cell =>
+                {
+                    var titleStartColumn = cell.MergeRange?.StartColumn ?? cell.Column;
+                    return titleStartColumn > numberEndColumn &&
+                        titleStartColumn <= numberEndColumn + 6 &&
+                        LooksLikeTitleName((cell.Text ?? string.Empty).Trim());
+                });
+                if (titleCell == null)
+                {
+                    continue;
+                }
+
+                var combinedTitle = $"{numberCell.Text.Trim()} {titleCell.Text.Trim()}";
+                if (!TryParseNumberedSectionTitle(combinedTitle, out var level, out _))
+                {
+                    continue;
+                }
+
+                return new SectionMarker
+                {
+                    Row = numberCell.Row,
+                    Text = combinedTitle,
+                    Level = level
                 };
             }
 
             return null;
+        }
+
+        private static bool LooksLikeStandaloneSectionNumber(string text)
+        {
+            var value = (text ?? string.Empty).Trim().Replace('．', '.');
+            return NumericChildNumberOnlyRegex.IsMatch(value) || TopLevelNumberOnlyRegex.IsMatch(value);
+        }
+
+        private static SectionMarker FindUnnumberedSectionMarker(List<CellMeta> rowCells)
+        {
+            foreach (var cell in rowCells.OrderBy(cell => cell.Column))
+            {
+                var text = (cell.Text ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(text) || cell.Column > 2 ||
+                    !LooksLikeUnnumberedSectionTitle(text, rowCells))
+                {
+                    continue;
+                }
+
+                return new SectionMarker
+                {
+                    Row = cell.Row,
+                    Text = text,
+                    Level = 1
+                };
+            }
+
+            return null;
+        }
+
+        private static bool TryParseNumberedSectionTitle(string text, out int level, out string title)
+        {
+            level = 0;
+            title = string.Empty;
+            var value = (text ?? string.Empty).Trim().Replace('．', '.');
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            var childMatch = NumericChildTitleRegex.Match(value);
+            if (childMatch.Success)
+            {
+                var number = Regex.Replace(childMatch.Groups["number"].Value, @"\s+", string.Empty);
+                level = number.Count(ch => ch == '.') + 1;
+                title = childMatch.Groups["title"].Value.Trim();
+                return LooksLikeTitleName(title);
+            }
+
+            var topLevelMatch = NumericTopLevelTitleRegex.Match(value);
+            if (!topLevelMatch.Success)
+            {
+                topLevelMatch = ChineseTopLevelTitleRegex.Match(value);
+            }
+
+            if (!topLevelMatch.Success)
+            {
+                return false;
+            }
+
+            level = 1;
+            title = topLevelMatch.Groups["title"].Value.Trim();
+            return LooksLikeTitleName(title);
+        }
+
+        private static bool LooksLikeTitleName(string title)
+        {
+            return !string.IsNullOrWhiteSpace(title) && title.Any(char.IsLetter);
         }
 
         private static bool LooksLikeUnnumberedSectionTitle(string text, List<CellMeta> rowCells)
@@ -178,7 +381,7 @@ namespace ExcelCalibrationAddin.Core.Services
         {
             return SectionKeywords.Any(keyword => alias.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0)
                 ? 96
-                : 72;
+                : 80;
         }
 
         private static int InferLastContentRowExcludingTrailingNotes(SheetSnapshot sheet, int sectionStartRow)
@@ -235,6 +438,7 @@ namespace ExcelCalibrationAddin.Core.Services
         {
             public int Row { get; set; }
             public string Text { get; set; } = string.Empty;
+            public int Level { get; set; }
         }
     }
 }

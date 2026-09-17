@@ -11,11 +11,17 @@ namespace ExcelCalibrationAddin.Core.Tests
     public sealed class MultiAreaPositionTemplateTests
     {
         [TestMethod]
-        public void PositionTemplateKeepsOnlyRelativeAreaGeometry()
+        public void PositionTemplateKeepsRelativeGeometryAndFormulaStructure()
         {
+            var firstArea = Area(10, 4, 2, 3);
+            firstArea.Formulas = new List<List<string>>
+            {
+                new List<string> { "=RC[-1]", string.Empty, string.Empty },
+                new List<string> { string.Empty, "=R[-1]C", string.Empty }
+            };
             var template = MultiAreaPositionTemplate.Create("报告摘录", new[]
             {
-                Area(10, 4, 2, 3),
+                firstArea,
                 Area(20, 8, 1, 2)
             });
 
@@ -24,6 +30,8 @@ namespace ExcelCalibrationAddin.Core.Tests
             Assert.AreEqual(0, template.Areas[0].ColumnOffset);
             Assert.AreEqual(10, template.Areas[1].RowOffset);
             Assert.AreEqual(4, template.Areas[1].ColumnOffset);
+            Assert.AreEqual("=RC[-1]", template.Areas[0].Formulas[0][0]);
+            Assert.AreEqual("=R[-1]C", template.Areas[0].Formulas[1][1]);
 
             var resolved = template.Resolve(100, 6);
             Assert.AreEqual(100, resolved[0].StartRow);
@@ -59,7 +67,7 @@ namespace ExcelCalibrationAddin.Core.Tests
         }
 
         [TestMethod]
-        public void StorePersistsSourceIdentityWithoutCellValues()
+        public void StorePersistsSourceIdentityAndFormulaStructureWithoutCellValues()
         {
             var path = Path.Combine(Path.GetTempPath(), "ExcelCalibrationAddin.Tests", Guid.NewGuid().ToString("N"), "multi-area.json");
             var template = MultiAreaPositionTemplate.Create("位置模板", new[] { Area(1, 1, 2, 2) });

@@ -20,6 +20,8 @@ namespace ExcelCalibrationAddin.Host.Vsto
     public sealed partial class VstoAddinFacade : IDisposable
     {
         private readonly PluginBootstrapper _bootstrapper;
+        private long? _activeSampleVersionId;
+        private string _activeSampleTemplateFingerprint = string.Empty;
 
         public VstoAddinFacade(PluginConfiguration configuration)
         {
@@ -126,6 +128,7 @@ namespace ExcelCalibrationAddin.Host.Vsto
 
                 var appliedConfiguration = ResolveAppliedGenerationConfiguration(recognition);
                 var rulesToWrite = ApplyGenerationOverride(recognition.DraftRules, generationOverride);
+                ConfigureActiveSampleData(controller, recognition.Recognition?.Fingerprint?.ExactFingerprint);
                 var writeResult = controller.WriteResolved(rulesToWrite, appliedConfiguration);
                 var state = BuildTaskPaneState(
                     recognition,
@@ -229,10 +232,15 @@ namespace ExcelCalibrationAddin.Host.Vsto
             return candidates;
         }
 
-        public GenerationWriteResult WriteRules(dynamic workbook, IReadOnlyList<MeasurementRule> rules, GenerationConfiguration generationConfiguration = null)
+        public GenerationWriteResult WriteRules(
+            dynamic workbook,
+            IReadOnlyList<MeasurementRule> rules,
+            GenerationConfiguration generationConfiguration = null,
+            string templateFingerprint = null)
         {
             Trace.WriteLine($"[Host] WriteRules enter. Workbook={workbook?.Name}, Rules={rules?.Count ?? 0}");
             var controller = CreateController(workbook);
+            ConfigureActiveSampleData(controller, templateFingerprint);
             GenerationWriteResult result;
             if (generationConfiguration == null)
             {
@@ -256,12 +264,70 @@ namespace ExcelCalibrationAddin.Host.Vsto
         }
 
         public IReadOnlyList<SampleDataVersion> ListSampleDataVersions(string templateFingerprint) => _bootstrapper.LocalTemplateRuleCacheRepository.ListSampleDataVersions(templateFingerprint);
-        public bool DeleteSampleDataVersion(long versionId) => _bootstrapper.LocalTemplateRuleCacheRepository.DeleteSampleDataVersion(versionId);
+        public bool DeleteSampleDataVersion(long versionId)
+        {
+            var deleted = _bootstrapper.LocalTemplateRuleCacheRepository.DeleteSampleDataVersion(versionId);
+            if (deleted && _activeSampleVersionId == versionId)
+            {
+                _activeSampleVersionId = null;
+            }
+            return deleted;
+        }
+        public long? ActiveSampleVersionId => _activeSampleVersionId;
 
-        public GenerationWriteResult WritePreResolvedRules(dynamic workbook, IReadOnlyList<MeasurementRule> rules, GenerationConfiguration generationConfiguration)
+        public bool SelectSampleDataVersion(string templateFingerprint, long? versionId)
+        {
+            if (!versionId.HasValue)
+            {
+                _activeSampleVersionId = null;
+                _activeSampleTemplateFingerprint = templateFingerprint ?? string.Empty;
+                return true;
+            }
+
+            var version = _bootstrapper.LocalTemplateRuleCacheRepository.GetSampleDataVersion(versionId.Value);
+            if (version == null || !string.Equals(
+                version.TemplateFingerprint,
+                templateFingerprint,
+                StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            _activeSampleVersionId = version.Id;
+            _activeSampleTemplateFingerprint = version.TemplateFingerprint;
+            return true;
+        }
+
+        private void ConfigureActiveSampleData(AddinWorkflowController controller, string templateFingerprint)
+        {
+            if (controller == null || !_activeSampleVersionId.HasValue ||
+                !string.Equals(_activeSampleTemplateFingerprint, templateFingerprint, StringComparison.Ordinal))
+            {
+                controller?.SetSampleDataPoints(null);
+                return;
+            }
+
+            var version = _bootstrapper.LocalTemplateRuleCacheRepository.GetSampleDataVersion(_activeSampleVersionId.Value);
+            controller.SetSampleDataPoints((version?.Items ?? new List<TemplateSampleData>())
+                .Where(item => item != null)
+                .SelectMany(item => (item.Points ?? new List<SampleDataPoint>())
+                    .Where(point => point != null)
+                    .Select(point =>
+                    {
+                        point.CalibrationItemName = item.CalibrationItemName;
+                        return point;
+                    })));
+        }
+
+        public GenerationWriteResult WritePreResolvedRules(
+            dynamic workbook,
+            IReadOnlyList<MeasurementRule> rules,
+            GenerationConfiguration generationConfiguration,
+            string templateFingerprint = null)
         {
             Trace.WriteLine($"[Host] WritePreResolvedRules enter. Workbook={workbook?.Name}, Rules={rules?.Count ?? 0}");
             var controller = CreateController(workbook);
+            ConfigureActiveSampleData(controller, templateFingerprint);
             var result = controller.WritePreResolved(rules, generationConfiguration ?? ResolveCurrentGenerationConfiguration());
             Trace.WriteLine("[Host] WritePreResolvedRules exit.");
             return result;
@@ -279,13 +345,7 @@ namespace ExcelCalibrationAddin.Host.Vsto
                 return;
             }
 
-            var verificationRanges = formulaRules
-                .Select(rule => rule.ErrorSource.Range)
-                .Concat(formulaRules
-                    .Where(GenerationRuleValidator.IsRepeatabilityRule)
-                    .Select(rule => rule.TargetRange)
-                    .Where(GenerationRuleValidator.HasValidRange))
-                .ToList();
+            var verificationRanges = MeasurementRuleSnapshotRangeCollector.Collect(formulaRules);
             var snapshot = new ExcelInteropSnapshotProvider(workbook).Capture(verificationRanges);
             new FormulaResultVerifier().Verify(snapshot, formulaRules);
         }
@@ -403,7 +463,8 @@ namespace ExcelCalibrationAddin.Host.Vsto
                     TechnicalRequirementRange = CloneSavedTemplateRange(rule.MpeSource?.Range),
                     RangeValueRange = CloneSavedTemplateRange(rule.RangeSource?.Range),
                     UncertaintyRange = CloneSavedTemplateRange(rule.UncertaintySource?.Range),
-                    ResultRange = CloneSavedTemplateRange(rule.ResultSource?.Range)
+                    ResultRange = CloneSavedTemplateRange(rule.ResultSource?.Range),
+                    AdditionalJudgementConstraints = MeasurementRuleCloner.CloneJudgementConstraints(rule.AdditionalJudgementConstraints)
                 })
                 .ToList();
         }

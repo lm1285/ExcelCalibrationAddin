@@ -109,7 +109,14 @@ namespace ExcelCalibrationAddin.Host.Services
                 return new List<string>();
             }
 
-            var aliases = new List<string> { normalized };
+            var aliases = new List<string>
+            {
+                normalized,
+                "\u8BEF\u5DEE",
+                "\u793A\u503C\u8BEF\u5DEE",
+                "\u76F8\u5BF9\u8BEF\u5DEE",
+                "\u91CD\u590D\u6027"
+            };
             if (normalized.IndexOf("\u91CD\u590D\u6027", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 aliases.Add("\u91CD\u590D\u6027");
@@ -124,6 +131,321 @@ namespace ExcelCalibrationAddin.Host.Services
             }
 
             return aliases.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        private static List<MeasurementJudgementConstraint> BuildAdditionalJudgementConstraints(
+            SheetSnapshot sheet,
+            int startRow,
+            int endRow,
+            string projectName,
+            HeaderBand headerBand,
+            CellRange primaryErrorRange,
+            CellRange primaryTechnicalRange,
+            CellRange primaryResultRange,
+            params CellRange[] occupiedRanges)
+        {
+            var occupied = new List<CellRange>(occupiedRanges ?? Array.Empty<CellRange>())
+            {
+                primaryErrorRange,
+                primaryTechnicalRange,
+                primaryResultRange
+            };
+            var extraErrorRanges = CollectErrorRangesByProjectTitle(
+                    sheet,
+                    startRow,
+                    endRow,
+                    projectName,
+                    occupied.ToArray())
+                .Where(range => !RangesOverlap(range, primaryErrorRange))
+                .ToList();
+            extraErrorRanges.AddRange(CollectDataRanges(
+                    sheet,
+                    startRow,
+                    endRow,
+                    ErrorKeywords,
+                    occupied.Concat(extraErrorRanges).ToArray())
+                .Where(range => extraErrorRanges.All(existing => !RangesOverlap(existing, range)) &&
+                    !RangesOverlap(range, primaryErrorRange)));
+
+            var extraTechnicalRanges = CollectDataRanges(
+                    sheet,
+                    startRow,
+                    endRow,
+                    TechnicalKeywords,
+                    occupied.Concat(extraErrorRanges).ToArray())
+                .Concat(CollectLayoutRanges(
+                    sheet,
+                    headerBand,
+                    endRow,
+                    TechnicalKeywords,
+                    occupied.Concat(extraErrorRanges).ToArray()))
+                .Where(range => !RangesOverlap(range, primaryTechnicalRange) &&
+                    occupied.Concat(extraErrorRanges).All(existing => !RangesOverlap(existing, range)))
+                .GroupBy(RangeKey)
+                .Select(group => group.First())
+                .ToList();
+            var extraResultRanges = CollectDataRanges(
+                    sheet,
+                    startRow,
+                    endRow,
+                    ResultKeywords,
+                    occupied.Concat(extraErrorRanges).Concat(extraTechnicalRanges).ToArray())
+                .Concat(CollectLayoutRanges(
+                    sheet,
+                    headerBand,
+                    endRow,
+                    ResultKeywords,
+                    occupied.Concat(extraErrorRanges).Concat(extraTechnicalRanges).ToArray()))
+                .Where(range => !RangesOverlap(range, primaryResultRange))
+                .GroupBy(RangeKey)
+                .Select(group => group.First())
+                .ToList();
+
+            var count = Math.Max(extraErrorRanges.Count, Math.Max(extraTechnicalRanges.Count, extraResultRanges.Count));
+            var constraints = new List<MeasurementJudgementConstraint>();
+            for (var index = 0; index < count; index++)
+            {
+                var errorRange = index < extraErrorRanges.Count ? extraErrorRanges[index] : null;
+                var technicalRange = index < extraTechnicalRanges.Count ? extraTechnicalRanges[index] : null;
+                var resultRange = index < extraResultRanges.Count ? extraResultRanges[index] : null;
+                if (errorRange == null && technicalRange == null && resultRange == null)
+                {
+                    continue;
+                }
+
+                constraints.Add(new MeasurementJudgementConstraint
+                {
+                    Name = "附属判定" + (index + 1),
+                    ErrorSource = errorRange == null ? null : new ParameterSource { Name = "误差", Range = CloneRange(errorRange) },
+                    MpeSource = technicalRange == null ? null : new ParameterSource { Name = "技术要求", Range = CloneRange(technicalRange) },
+                    ResultSource = resultRange == null ? null : new ParameterSource { Name = "结论", Range = CloneRange(resultRange) }
+                });
+            }
+
+            return constraints;
+        }
+
+        private static List<CellRange> CollectErrorRangesByProjectTitle(
+            SheetSnapshot sheet,
+            int startRow,
+            int endRow,
+            string projectName,
+            params CellRange[] excludedRanges)
+        {
+            var aliases = BuildErrorHeaderAliases(projectName);
+            if (aliases.Count == 0)
+            {
+                return new List<CellRange>();
+            }
+
+            var referenceDataStartRow = excludedRanges
+                .Where(range => range != null)
+                .Select(range => range.StartRow)
+                .DefaultIfEmpty(startRow + 1)
+                .Max();
+            var searchEndRow = Math.Min(endRow, startRow + 6);
+            var candidates = new List<ResultHeaderCandidate>();
+            foreach (var cell in sheet.Cells
+                .Where(item =>
+                    item.Row >= startRow &&
+                    item.Row <= searchEndRow &&
+                    !string.IsNullOrWhiteSpace(item.Text) &&
+                    !LooksLikeSectionTitle(item.Text) &&
+                    IsErrorHeaderForProject(item.Text, aliases))
+                .OrderBy(item => item.Row)
+                .ThenBy(item => item.Column))
+            {
+                var columnStart = cell.MergeRange?.StartColumn ?? cell.Column;
+                var columnEnd = cell.MergeRange?.EndColumn ?? cell.Column;
+                if (excludedRanges.Any(range => IsColumnRangeOverlap(columnStart, columnEnd, range)) ||
+                    candidates.Any(existing => columnStart <= existing.EndColumn && existing.StartColumn <= columnEnd))
+                {
+                    continue;
+                }
+
+                var headerBottomRow = cell.MergeRange?.EndRow ?? cell.Row;
+                var candidateDataStartRow = Math.Max(headerBottomRow + 1, referenceDataStartRow);
+                var dataStartRow = FindFirstFormulaRow(sheet, candidateDataStartRow, endRow, columnStart, columnEnd)
+                    ?? FindFirstDataRow(sheet, candidateDataStartRow, endRow, columnStart, columnEnd);
+                if (dataStartRow <= 0)
+                {
+                    continue;
+                }
+
+                var formulaCount = CountFormulaCells(sheet, dataStartRow, endRow, columnStart, columnEnd);
+                var dataCount = CountDataCells(sheet, dataStartRow, endRow, columnStart, columnEnd);
+                candidates.Add(new ResultHeaderCandidate
+                {
+                    StartColumn = columnStart,
+                    EndColumn = columnEnd,
+                    DataStartRow = dataStartRow,
+                    Score = ScoreErrorHeader(cell.Text, aliases) + formulaCount * 10 + dataCount * 2
+                });
+            }
+
+            return candidates
+                .OrderByDescending(item => item.Score)
+                .Select(item => new CellRange
+                {
+                    SheetName = sheet.Name,
+                    StartRow = item.DataStartRow,
+                    EndRow = endRow,
+                    StartColumn = item.StartColumn,
+                    EndColumn = item.EndColumn
+                })
+                .ToList();
+        }
+
+        private static List<CellRange> CollectDataRanges(
+            SheetSnapshot sheet,
+            int startRow,
+            int endRow,
+            string[] keywords,
+            params CellRange[] excludedRanges)
+        {
+            var headerCandidates = sheet.Cells
+                .Where(cell =>
+                    cell.Row >= startRow &&
+                    cell.Row <= Math.Min(endRow, startRow + 6) &&
+                    !string.IsNullOrWhiteSpace(cell.Text) &&
+                    !LooksLikeSectionTitle(cell.Text) &&
+                    !LooksLikeWrongFieldHeader(cell.Text, keywords) &&
+                    keywords.Any(keyword => MatchesKeyword(cell.Text, keyword)))
+                .OrderBy(cell => cell.Row)
+                .ThenBy(cell => cell.Column)
+                .ToList();
+            var ranges = new List<CellRange>();
+            foreach (var candidate in headerCandidates)
+            {
+                var columnStart = candidate.MergeRange?.StartColumn ?? candidate.Column;
+                var columnEnd = candidate.MergeRange?.EndColumn ?? candidate.Column;
+                if (excludedRanges.Any(range => IsColumnRangeOverlap(columnStart, columnEnd, range)) ||
+                    ranges.Any(range => IsColumnRangeOverlap(columnStart, columnEnd, range)))
+                {
+                    continue;
+                }
+
+                var range = BuildDataRangeFromHeader(sheet, startRow, endRow, keywords, candidate);
+                if (range != null)
+                {
+                    ranges.Add(range);
+                }
+            }
+
+            return ranges;
+        }
+
+        private static List<CellRange> CollectLayoutRanges(
+            SheetSnapshot sheet,
+            HeaderBand headerBand,
+            int endRow,
+            string[] keywords,
+            params CellRange[] excludedRanges)
+        {
+            var ranges = new List<CellRange>();
+            if (headerBand == null)
+            {
+                return ranges;
+            }
+
+            var remaining = excludedRanges?.Where(range => range != null).ToList() ?? new List<CellRange>();
+            while (true)
+            {
+                var inferred = InferRangeFromLayout(sheet, headerBand, endRow, keywords, remaining.ToArray());
+                if (inferred == null || remaining.Any(range => RangesOverlap(range, inferred)))
+                {
+                    break;
+                }
+
+                ranges.Add(inferred);
+                remaining.Add(inferred);
+            }
+
+            return ranges;
+        }
+
+        private static CellRange BuildDataRangeFromHeader(
+            SheetSnapshot sheet,
+            int startRow,
+            int endRow,
+            string[] keywords,
+            CellMeta candidate)
+        {
+            if (candidate == null)
+            {
+                return null;
+            }
+
+            var selectedHeader = SelectBestHeaderCandidate(sheet, startRow, endRow, keywords, new List<CellMeta> { candidate });
+            if (selectedHeader == null)
+            {
+                return null;
+            }
+
+            var effectiveRange = RefineMeasurementColumns(
+                sheet,
+                selectedHeader.HeaderBottomRow,
+                endRow,
+                selectedHeader.StartColumn,
+                selectedHeader.EndColumn,
+                keywords);
+            var dataStartRow = FindFirstDataRow(
+                sheet,
+                effectiveRange.HeaderBottomRow + 1,
+                endRow,
+                effectiveRange.StartColumn,
+                effectiveRange.EndColumn);
+            if (dataStartRow <= 0 && !HasSufficientDataBelow(
+                sheet,
+                effectiveRange.HeaderBottomRow,
+                endRow,
+                effectiveRange.StartColumn,
+                effectiveRange.EndColumn))
+            {
+                return null;
+            }
+
+            if (dataStartRow <= 0)
+            {
+                dataStartRow = Math.Min(endRow, effectiveRange.HeaderBottomRow + 1);
+            }
+
+            return new CellRange
+            {
+                SheetName = sheet.Name,
+                StartRow = dataStartRow,
+                EndRow = endRow,
+                StartColumn = effectiveRange.StartColumn,
+                EndColumn = effectiveRange.EndColumn
+            };
+        }
+
+        private static string RangeKey(CellRange range)
+        {
+            return range == null
+                ? string.Empty
+                : string.Join(":", new[]
+                {
+                    range.SheetName ?? string.Empty,
+                    range.StartRow.ToString(),
+                    range.StartColumn.ToString(),
+                    range.EndRow.ToString(),
+                    range.EndColumn.ToString()
+                });
+        }
+
+        private static CellRange CloneRange(CellRange range)
+        {
+            return range == null
+                ? null
+                : new CellRange
+                {
+                    SheetName = range.SheetName,
+                    StartRow = range.StartRow,
+                    EndRow = range.EndRow,
+                    StartColumn = range.StartColumn,
+                    EndColumn = range.EndColumn
+                };
         }
 
         private static bool IsErrorHeaderForProject(string text, IReadOnlyList<string> aliases)

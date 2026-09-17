@@ -202,7 +202,25 @@ namespace ExcelCalibrationAddin.Vsto
             EnsureFacade();
             var state = _lastGenerationState;
             if (state == null || string.IsNullOrWhiteSpace(state.ExactFingerprint)) throw new InvalidOperationException("请先识别并匹配模板。");
-            using (var dialog = new SampleDataVersionDialog(_facade.ListSampleDataVersions(state.ExactFingerprint), id => _facade.DeleteSampleDataVersion(id))) dialog.ShowDialog(GetExcelMainWindow());
+            using (var dialog = new SampleDataVersionDialog(
+                _facade.ListSampleDataVersions(state.ExactFingerprint),
+                id => _facade.DeleteSampleDataVersion(id),
+                allowSelection: true,
+                selectedVersionId: _facade.ActiveSampleVersionId))
+            {
+                if (dialog.ShowDialog(GetExcelMainWindow()) == DialogResult.OK)
+                {
+                    if (!_facade.SelectSampleDataVersion(state.ExactFingerprint, dialog.SelectedVersionId))
+                    {
+                        throw new InvalidOperationException("选择的样本版本不属于当前模板或已被删除。");
+                    }
+                    MessageBox.Show(
+                        dialog.SelectedVersionId.HasValue ? "后续生成将参考选中的样本分布。" : "后续生成不再使用样本分布。",
+                        "样本数据",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+            }
         }
 
         internal void ShowTemplateLibraryManager()

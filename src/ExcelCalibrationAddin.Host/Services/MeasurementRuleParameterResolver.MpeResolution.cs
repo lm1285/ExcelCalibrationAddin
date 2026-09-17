@@ -79,6 +79,7 @@ namespace ExcelCalibrationAddin.Host.Services
             var numberFormat = anchor.NumberFormat ?? string.Empty;
             var unitSignals = string.Join(" ", contextTexts
                 .Concat(requirement.ContextSignals)
+                .Concat(CollectTemplateUnitSignals(rule))
                 .Where(text => !string.IsNullOrWhiteSpace(text)));
             var templatePattern = MpeValuePatternCodec.Parse(rule?.MpeSource?.ValuePattern);
             var displayedErrorType = ResolveDisplayedErrorType(requirement, rawText, numberFormat, anchor.Formula);
@@ -109,11 +110,28 @@ namespace ExcelCalibrationAddin.Host.Services
             }
 
             var toleranceRange = ResolveToleranceRange(rawText, errorType, numberFormat, unitSignals, templatePattern);
-            var valuePattern = templatePattern?.RawPattern ??
-            MpeValuePatternCodec.Build(
-                    errorType,
+            var resolvedOperator = requirement.Operator != TechnicalRequirementOperator.None
+                ? requirement.Operator
+                : templatePattern?.Operator ?? TechnicalRequirementOperator.None;
+            if (resolvedOperator == TechnicalRequirementOperator.None)
+            {
+                resolvedOperator = Generation.GenerationRuleValidator.InferOperatorFromResultFormula(rule);
+            }
+            var resolvedUnit = ResolveRequirementUnit(rawText, unitSignals);
+            if (string.IsNullOrWhiteSpace(resolvedUnit))
+            {
+                resolvedUnit = templatePattern?.Unit ?? string.Empty;
+            }
+            if (string.IsNullOrWhiteSpace(resolvedUnit))
+            {
+                resolvedUnit = Generation.GenerationRuleValidator.ResolveUpperLimitUnit(rule);
+            }
+            var valuePattern = MpeValuePatternCodec.Build(
+                errorType,
+                templatePattern?.ScaleFactor ??
                     ResolveMpeScaleFactor(selectedNumber.Value, errorType, rawText, numberFormat, unitSignals),
-                    requirement.Operator);
+                resolvedOperator,
+                resolvedUnit);
 
             double? referenceRange = null;
             if (errorType == ErrorType.Referenced)
@@ -128,12 +146,46 @@ namespace ExcelCalibrationAddin.Host.Services
                 NegativeTolerance = toleranceRange.negative,
                 PositiveTolerance = toleranceRange.positive,
                 ReferenceRange = referenceRange,
-                RequirementOperator = requirement.Operator,
+                RequirementOperator = resolvedOperator,
                 ValuePattern = valuePattern,
                 Row = logicalCell.Range.StartRow,
                 Column = logicalCell.Range.StartColumn,
                 Score = ScoreCandidate(rawText, numberFormat, unitSignals, errorType, referenceRange, requirement.Operator)
             };
+        }
+
+        private static string ResolveRequirementUnit(string rawText, string unitSignals)
+        {
+            var text = string.Join(" ", new[] { rawText, unitSignals }
+                .Where(value => !string.IsNullOrWhiteSpace(value)));
+            return Regex.IsMatch(text, @"(?<![A-Za-z])s(?![A-Za-z])", RegexOptions.IgnoreCase) ||
+                text.IndexOf("秒", StringComparison.OrdinalIgnoreCase) >= 0
+                ? "s"
+                : string.Empty;
+        }
+
+        private static IEnumerable<string> CollectTemplateUnitSignals(MeasurementRule rule)
+        {
+            var regions = rule?.TemplateDefinition?.Regions ?? new List<TemplateRegionDefinition>();
+            foreach (var region in regions.Where(item => item != null))
+            {
+                yield return region.Unit;
+                foreach (var unit in region.Units ?? new List<string>())
+                {
+                    yield return unit;
+                }
+
+                foreach (var requirement in region.RequirementValues ?? new List<TemplateRequirementValue>())
+                {
+                    yield return requirement?.Unit;
+                    yield return requirement?.DisplayText;
+                }
+
+                foreach (var header in region.HeaderPath ?? new List<string>())
+                {
+                    yield return header;
+                }
+            }
         }
 
         private static ErrorType? ResolveDisplayedErrorType(

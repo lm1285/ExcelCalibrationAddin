@@ -105,6 +105,7 @@ namespace ExcelCalibrationAddin.Host.Vsto
                 NegativeDirectionOnly = rule.NegativeDirectionOnly,
                 GenerationCoefficientOverride = CloneCoefficientOverride(rule.GenerationCoefficientOverride),
                 ErrorFormula = CloneErrorFormula(rule.ErrorFormula),
+                AdditionalJudgementConstraints = CloneJudgementConstraints(rule.AdditionalJudgementConstraints),
                 TemplateDefinition = TemplateDefinitionCloner.Clone(rule.TemplateDefinition)
             };
         }
@@ -190,10 +191,17 @@ namespace ExcelCalibrationAddin.Host.Vsto
                     RangeValueRange = CloneRange(item.RangeValueRange),
                     UncertaintyRange = CloneRange(item.UncertaintyRange),
                     ResultRange = CloneRange(item.ResultRange),
+                    AdditionalJudgementConstraints = CloneJudgementConstraints(item.AdditionalJudgementConstraints),
                     IsComplete = item.IsComplete,
                     StatusMessage = item.StatusMessage
                 })
                 .ToList();
+        }
+
+        private static List<MeasurementJudgementConstraint> CloneJudgementConstraints(
+            IEnumerable<MeasurementJudgementConstraint> constraints)
+        {
+            return ExcelCalibrationAddin.Host.Services.MeasurementRuleCloner.CloneJudgementConstraints(constraints);
         }
 
         private static MeasurementGenerationCoefficientOverride CloneCoefficientOverride(MeasurementGenerationCoefficientOverride source)
@@ -238,7 +246,11 @@ namespace ExcelCalibrationAddin.Host.Vsto
                 ResultFormula = info.ResultFormula,
                 Scale = info.Scale,
                 FormulaMultipliesBy100 = info.FormulaMultipliesBy100,
-                FormulaDividesByReferenceRange = info.FormulaDividesByReferenceRange
+                FormulaDividesByReferenceRange = info.FormulaDividesByReferenceRange,
+                DependencyRanges = (info.DependencyRanges ?? new List<CellRange>())
+                    .Select(CloneSavedTemplateRange)
+                    .ToList(),
+                UnresolvedDependencies = new List<string>(info.UnresolvedDependencies ?? new List<string>())
             };
         }
 

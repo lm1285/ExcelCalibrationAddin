@@ -210,7 +210,6 @@ namespace ExcelCalibrationAddin.Vsto
             this.boxSingleUseOverride.BoxStyle = Microsoft.Office.Tools.Ribbon.RibbonBoxStyle.Vertical;
             this.boxSingleUseOverride.Items.Add(this.cboOverrideRule);
             this.boxSingleUseOverride.Items.Add(this.edtOverrideRange);
-            this.boxSingleUseOverride.Items.Add(this.edtOverrideDecimals);
             this.boxSingleUseOverride.Name = "boxSingleUseOverride";
             // 
             // cboOverrideRule

@@ -13,7 +13,8 @@ namespace ExcelCalibrationAddin.Host.Services
         public static string Build(
             ErrorType errorType,
             double scaleFactor,
-            TechnicalRequirementOperator requirementOperator = TechnicalRequirementOperator.None)
+            TechnicalRequirementOperator requirementOperator = TechnicalRequirementOperator.None,
+            string unit = null)
         {
             var pattern = Prefix +
                 errorType.ToString().ToLowerInvariant() +
@@ -23,6 +24,12 @@ namespace ExcelCalibrationAddin.Host.Services
             if (requirementOperator != TechnicalRequirementOperator.None)
             {
                 pattern += ":op=" + requirementOperator.ToString().ToLowerInvariant();
+            }
+
+            var normalizedUnit = NormalizeUnit(unit);
+            if (!string.IsNullOrWhiteSpace(normalizedUnit))
+            {
+                pattern += ":unit=" + normalizedUnit;
             }
 
             return pattern;
@@ -62,6 +69,7 @@ namespace ExcelCalibrationAddin.Host.Services
             }
 
             var requirementOperator = TechnicalRequirementOperator.None;
+            var unit = string.Empty;
             foreach (var part in parts.Skip(2))
             {
                 if (!part.StartsWith("op=", StringComparison.OrdinalIgnoreCase))
@@ -72,13 +80,31 @@ namespace ExcelCalibrationAddin.Host.Services
                 Enum.TryParse(part.Substring("op=".Length), true, out requirementOperator);
             }
 
+            foreach (var part in parts.Skip(2))
+            {
+                if (part.StartsWith("unit=", StringComparison.OrdinalIgnoreCase))
+                {
+                    unit = NormalizeUnit(part.Substring("unit=".Length));
+                }
+            }
+
             return new MpeValuePattern
             {
                 ErrorType = errorType,
                 ScaleFactor = scaleFactor,
                 Operator = requirementOperator,
+                Unit = unit,
                 RawPattern = valuePattern.Trim()
             };
+        }
+
+        internal static string NormalizeUnit(string value)
+        {
+            var normalized = (value ?? string.Empty).Trim().ToLowerInvariant();
+            return normalized == "s" || normalized == "sec" || normalized == "second" ||
+                normalized == "seconds" || normalized == "秒"
+                ? "s"
+                : string.Empty;
         }
     }
 
@@ -87,6 +113,7 @@ namespace ExcelCalibrationAddin.Host.Services
         public ErrorType ErrorType { get; set; }
         public double ScaleFactor { get; set; } = 1d;
         public TechnicalRequirementOperator Operator { get; set; }
+        public string Unit { get; set; } = string.Empty;
         public string RawPattern { get; set; } = string.Empty;
     }
 }

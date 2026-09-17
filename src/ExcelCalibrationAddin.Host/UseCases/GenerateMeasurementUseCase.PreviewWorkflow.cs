@@ -112,21 +112,7 @@ namespace ExcelCalibrationAddin.Host.UseCases
                 return null;
             }
 
-            var ranges = (rules ?? Array.Empty<MeasurementRule>())
-                .Where(rule => rule != null)
-                .SelectMany(rule => new[]
-                {
-                    rule.TargetRange,
-                    rule.StandardValueSource?.Range,
-                    rule.AverageSource?.Range,
-                    rule.ErrorSource?.Range,
-                    rule.MpeSource?.Range,
-                    rule.RangeSource?.Range,
-                    rule.UncertaintySource?.Range,
-                    rule.ResultSource?.Range
-                })
-                .Where(GenerationRuleValidator.HasValidRange)
-                .ToList();
+            var ranges = MeasurementRuleSnapshotRangeCollector.Collect(rules);
 
             return ranges.Count == 0 ? _snapshotProvider.Capture() : _snapshotProvider.Capture(ranges);
         }
@@ -188,6 +174,7 @@ namespace ExcelCalibrationAddin.Host.UseCases
 
         private RulePreview GeneratePreResolvedPreview(MeasurementRule rule, WorkbookSnapshot snapshot, MeasurementGenerationSession session)
         {
+            GenerationRuleValidator.ValidateFormulaDependencies(rule);
             var writableResolution = WritableCellResolver.Resolve(snapshot, rule?.TargetRange);
             var resolvedWritableCells = writableResolution.Cells;
             var writableCells = resolvedWritableCells.Count > 0
@@ -394,91 +381,18 @@ namespace ExcelCalibrationAddin.Host.UseCases
             MeasurementRule rule,
             IReadOnlyList<CellAddress> writableCells)
         {
-            var upperLimit = MeasurementSeriesGenerator.ResolveUpperLimit(rule);
+            var upperLimit = Math.Abs(rule.FixedMpe.GetValueOrDefault());
             var decimalPlaces = rule.FormatRule?.DecimalPlaces ?? 2;
-            var manualStandardValues = GetManualStandardValuesByPoint(rule);
             var orderedCells = (writableCells ?? Array.Empty<CellAddress>())
                 .OrderBy(cell => cell.Row)
                 .ThenBy(cell => cell.Column)
                 .ToList();
-            var rawValues = new List<double>();
-            var generatedWritableCells = new List<CellAddress>();
-            var isPlusMinusRequirement = IsPlusMinusRequirement(rule);
-
-            if (!isPlusMinusRequirement && manualStandardValues.Count > 0)
-            {
-                var targetRows = orderedCells
-                    .Select(cell => cell.Row)
-                    .Distinct()
-                    .OrderBy(row => row)
-                    .ToList();
-                if (targetRows.Count == 1 && manualStandardValues.Count > 1)
-                {
-                    var lowerBound = manualStandardValues.Values.Min();
-                    var upperBound = manualStandardValues.Values.Max();
-                    var centerValue = (lowerBound + upperBound) / 2d;
-                    rawValues.AddRange(_seriesGenerator.GenerateResponseTimeValues(
-                        centerValue,
-                        upperLimit,
-                        orderedCells.Count,
-                        decimalPlaces,
-                        _generationConfiguration,
-                        lowerBound,
-                        upperBound));
-                    generatedWritableCells.AddRange(orderedCells);
-                }
-                else
-                {
-                    foreach (var manualStandardValue in manualStandardValues.OrderBy(item => item.Key))
-                    {
-                        if (manualStandardValue.Key > targetRows.Count)
-                        {
-                            continue;
-                        }
-
-                        var row = targetRows[manualStandardValue.Key - 1];
-                        var rowCells = orderedCells.Where(cell => cell.Row == row).ToList();
-                        rawValues.AddRange(_seriesGenerator.GenerateResponseTimeValues(
-                            manualStandardValue.Value,
-                            upperLimit,
-                            rowCells.Count,
-                            decimalPlaces,
-                            _generationConfiguration,
-                            rule.MeasurementLowerBound,
-                            rule.MeasurementUpperBound));
-                        generatedWritableCells.AddRange(rowCells);
-                    }
-                }
-            }
-            else if (!isPlusMinusRequirement)
-            {
-                var centerValue = rule.FixedStandardValue ??
-                    _seriesGenerator.GenerateUpperLimitValues(
-                        rule,
-                        upperLimit,
-                        1,
-                        decimalPlaces,
-                        _generationConfiguration)[0];
-                rawValues.AddRange(_seriesGenerator.GenerateResponseTimeValues(
-                    centerValue,
-                    upperLimit,
-                    orderedCells.Count,
-                    decimalPlaces,
-                    _generationConfiguration,
-                    rule.MeasurementLowerBound,
-                    rule.MeasurementUpperBound));
-                generatedWritableCells.AddRange(orderedCells);
-            }
-            else
-            {
-                rawValues.AddRange(_seriesGenerator.GenerateUpperLimitValues(
-                    rule,
-                    upperLimit,
-                    orderedCells.Count,
-                    decimalPlaces,
-                    _generationConfiguration));
-                generatedWritableCells.AddRange(orderedCells);
-            }
+            var rawValues = _seriesGenerator.GenerateResponseTimeValues(
+                upperLimit,
+                GenerationRuleValidator.ResolveUpperLimitOperator(rule),
+                orderedCells.Count,
+                decimalPlaces,
+                _generationConfiguration);
 
             if (rawValues.Count == 0)
             {
@@ -491,7 +405,7 @@ namespace ExcelCalibrationAddin.Host.UseCases
                 TargetRange = rule.TargetRange,
                 DisplayValues = MeasurementSeriesGenerator.FormatValues(rawValues, decimalPlaces),
                 RawValues = rawValues,
-                WritableCells = CloneCellAddresses(generatedWritableCells)
+                WritableCells = CloneCellAddresses(orderedCells)
             };
         }
 
@@ -695,7 +609,7 @@ namespace ExcelCalibrationAddin.Host.UseCases
                             throw new InvalidOperationException(
                                 "Generated calibration error is zero after applying the error-field precision.");
                         }
-                        ValidateGeneratedError(rule, standardValue, reusedTrendError);
+                        ValidateGeneratedErrors(rule, standardValue, reusedResult.RawValues);
                         ValidateConfiguredErrorUsage(rule, standardValue, reusedTrendError);
                         if (TryAddTrendError(rule, standardValue, reusedTrendError, trendErrors))
                         {
@@ -767,7 +681,7 @@ namespace ExcelCalibrationAddin.Host.UseCases
                 }
                 try
                 {
-                    ValidateGeneratedError(rule, standardValue, trendError);
+                    ValidateGeneratedErrors(rule, standardValue, reusableValues);
                 }
                 catch (InvalidOperationException)
                 {
@@ -884,7 +798,9 @@ namespace ExcelCalibrationAddin.Host.UseCases
             IReadOnlyList<int> decimalPlaces,
             int errorDecimalPlaces)
         {
-            if (values == null || values.Count <= 1 || decimalPlaces == null || decimalPlaces.Count != values.Count)
+            if (values == null || values.Count <= 1 ||
+                !RequiresMeasurementDispersion(rule, values.Count) ||
+                decimalPlaces == null || decimalPlaces.Count != values.Count)
             {
                 return values?.ToList() ?? new List<double>();
             }
@@ -921,7 +837,7 @@ namespace ExcelCalibrationAddin.Host.UseCases
 
                     try
                     {
-                        ValidateGeneratedError(rule, standardValue, error);
+                        ValidateGeneratedErrors(rule, standardValue, candidate);
                         ValidateConfiguredErrorUsage(rule, standardValue, error);
                         return candidate;
                     }
@@ -934,6 +850,37 @@ namespace ExcelCalibrationAddin.Host.UseCases
 
             throw new InvalidOperationException(
                 $"“{GenerationRuleValidator.ResolveRuleName(rule)}”在当前测量分辨力下无法生成不同的示值。");
+        }
+
+        private static bool RequiresMeasurementDispersion(MeasurementRule rule, int valueCount)
+        {
+            if (valueCount > 3)
+            {
+                return true;
+            }
+
+            if (valueCount <= 1 || rule == null)
+            {
+                return false;
+            }
+
+            if (GenerationRuleValidator.IsRepeatabilityRule(rule))
+            {
+                return true;
+            }
+
+            var formulaText = string.Join(" ", new[]
+            {
+                rule.ErrorFormula?.Formula,
+                rule.ErrorFormula?.AverageFormula,
+                rule.ErrorFormula?.TechnicalRequirementFormula,
+                rule.ErrorFormula?.ResultFormula
+            }).ToUpperInvariant();
+            return formulaText.Contains("STDEV") ||
+                formulaText.Contains("VAR(") ||
+                formulaText.Contains("\u6807\u51C6\u5DEE") ||
+                formulaText.Contains("\u91CD\u590D\u6027") ||
+                (formulaText.Contains("MAX(") && formulaText.Contains("MIN("));
         }
 
         private static bool AreMeasurementValuesValid(
@@ -1047,7 +994,7 @@ namespace ExcelCalibrationAddin.Host.UseCases
                             continue;
                         }
 
-                        ValidateGeneratedError(rule, standardValue, candidateError);
+                        ValidateGeneratedErrors(rule, standardValue, candidateValues);
                         ValidateConfiguredErrorUsage(rule, standardValue, candidateError);
                         adjustedValues = candidateValues;
                         adjustedTrendError = candidateError;
@@ -1117,6 +1064,8 @@ namespace ExcelCalibrationAddin.Host.UseCases
             ApplyPointRange(rule.RangeSource, mapping?.RangeValueRange ?? SelectRangeForRow(source.RangeSource?.Range, row));
             ApplyPointRange(rule.UncertaintySource, mapping?.UncertaintyRange ?? SelectRangeForRow(source.UncertaintySource?.Range, row));
             ApplyPointRange(rule.ResultSource, mapping?.ResultRange ?? SelectRangeForRow(source.ResultSource?.Range, row));
+            rule.AdditionalJudgementConstraints = MeasurementRuleCloner.CloneJudgementConstraints(
+                mapping?.AdditionalJudgementConstraints ?? source.AdditionalJudgementConstraints);
 
             if (_parameterResolver != null && snapshot != null)
             {
@@ -1164,7 +1113,8 @@ namespace ExcelCalibrationAddin.Host.UseCases
             rule.MpeSource.ValuePattern = MpeValuePatternCodec.Build(
                 rule.ErrorType,
                 0.01d,
-                rule.RequirementOperator);
+                rule.RequirementOperator,
+                pattern.Unit);
         }
 
         private static void ApplyPointRange(ParameterSource source, CellRange range)

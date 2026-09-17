@@ -271,7 +271,7 @@ namespace ExcelCalibrationAddin.Core.Tests
         }
 
         [TestMethod]
-        public void FingerprintChangesWhenHeaderChanges()
+        public void FingerprintIgnoresDynamicHeaderTextWhenLayoutIsStable()
         {
             var first = BuildSnapshot(10, 11);
             var second = BuildSnapshot(10, 11);
@@ -279,7 +279,7 @@ namespace ExcelCalibrationAddin.Core.Tests
 
             var builder = new TemplateFingerprintBuilder();
 
-            Assert.AreNotEqual(builder.Build(first).ExactFingerprint, builder.Build(second).ExactFingerprint);
+            Assert.AreEqual(builder.Build(first).ExactFingerprint, builder.Build(second).ExactFingerprint);
         }
 
         [TestMethod]
@@ -465,7 +465,7 @@ namespace ExcelCalibrationAddin.Core.Tests
         }
 
         [TestMethod]
-        public void FingerprintChangesWhenTechnicalRequirementChanges()
+        public void FingerprintIgnoresDynamicTechnicalRequirementValue()
         {
             var first = BuildSnapshot(10, 11);
             var second = BuildSnapshot(10, 11);
@@ -474,7 +474,50 @@ namespace ExcelCalibrationAddin.Core.Tests
 
             var builder = new TemplateFingerprintBuilder();
 
-            Assert.AreNotEqual(builder.Build(first).ExactFingerprint, builder.Build(second).ExactFingerprint);
+            Assert.AreEqual(builder.Build(first).ExactFingerprint, builder.Build(second).ExactFingerprint);
+        }
+
+        [TestMethod]
+        public void FormulaDependenciesKeepWorkbookReferencesAndRejectExternalWorkbookReferences()
+        {
+            var snapshot = BuildSnapshot(10, 11);
+            snapshot.Sheets.Add(new SheetSnapshot { Name = "Hidden Data" });
+            snapshot.NamedRanges.Add(new NamedRangeDefinition
+            {
+                Name = "LimitValue",
+                Range = new CellRange
+                {
+                    SheetName = "Hidden Data",
+                    StartRow = 8,
+                    EndRow = 8,
+                    StartColumn = 4,
+                    EndColumn = 4
+                }
+            });
+            var rule = new MeasurementRule
+            {
+                FieldName = "示值误差",
+                TargetRange = Range("C5:C5"),
+                ErrorSource = new ParameterSource { Range = Range("D5:D5") },
+                ErrorFormula = new ErrorFormulaInfo
+                {
+                    HasFormula = true,
+                    ReferencesMeasurement = true,
+                    Formula = "='Hidden Data'!$B$2+[External.xlsx]Sheet1!$C$3+C5+LimitValue"
+                }
+            };
+
+            new MeasurementRuleStructureAnalyzer().Apply(snapshot, new[] { rule });
+
+            Assert.IsTrue(rule.ErrorFormula.DependencyRanges.Any(range =>
+                range.SheetName == "Hidden Data" && range.StartRow == 2 && range.StartColumn == 2));
+            Assert.IsTrue(rule.ErrorFormula.DependencyRanges.Any(range =>
+                range.SheetName == "Sheet1" && range.StartRow == 5 && range.StartColumn == 3));
+            Assert.IsTrue(rule.ErrorFormula.DependencyRanges.Any(range =>
+                range.SheetName == "Hidden Data" && range.StartRow == 8 && range.StartColumn == 4));
+            Assert.IsFalse(rule.ErrorFormula.DependencyRanges.Any(range => range.StartRow == 3));
+            Assert.IsTrue(rule.ErrorFormula.UnresolvedDependencies.Contains("外部工作簿引用"));
+            Assert.IsFalse(rule.ErrorFormula.UnresolvedDependencies.Any(value => value.Contains("LimitValue")));
         }
 
         [TestMethod]
@@ -679,6 +722,7 @@ namespace ExcelCalibrationAddin.Core.Tests
                     ErrorType = ErrorType.Absolute,
                     ForcePositiveDirection = true,
                     ValueCount = 2,
+                    RequireVisibleVariation = true,
                     DecimalPlaces = 2
                 }));
 
@@ -1114,6 +1158,169 @@ namespace ExcelCalibrationAddin.Core.Tests
 
             Assert.AreEqual(1, fields.Count);
             Assert.AreEqual(5, fields[0].Range.StartRow);
+        }
+
+        [TestMethod]
+        public void FieldMatcherUsesStandaloneTopLevelTitlesAsCalibrationItems()
+        {
+            var sheet = new SheetSnapshot
+            {
+                Name = "Sheet1",
+                Cells = new List<CellMeta>
+                {
+                    new CellMeta { Row = 1, Column = 1, Text = "1、温度校准" },
+                    new CellMeta { Row = 2, Column = 1, Text = "测量数据" },
+                    new CellMeta { Row = 3, Column = 2, Text = "10" },
+                    new CellMeta { Row = 4, Column = 1, Text = "2、压力校准" },
+                    new CellMeta { Row = 5, Column = 2, Text = "20" }
+                }
+            };
+
+            var fields = new FieldMatcher().MatchMeasurementFields(sheet);
+
+            Assert.AreEqual(2, fields.Count);
+            Assert.AreEqual("1、温度校准", fields[0].Alias);
+            Assert.AreEqual(1, fields[0].Range.StartRow);
+            Assert.AreEqual(3, fields[0].Range.EndRow);
+            Assert.AreEqual("2、压力校准", fields[1].Alias);
+            Assert.AreEqual(4, fields[1].Range.StartRow);
+            Assert.AreEqual(5, fields[1].Range.EndRow);
+        }
+
+        [TestMethod]
+        public void FieldMatcherDoesNotTreatDecimalDataAsChildTitles()
+        {
+            var sheet = new SheetSnapshot
+            {
+                Name = "Sheet1",
+                Cells = new List<CellMeta>
+                {
+                    new CellMeta { Row = 1, Column = 1, Text = "1、示值误差" },
+                    new CellMeta { Row = 2, Column = 1, Text = "100.0", NumberFormat = "0.0" },
+                    new CellMeta { Row = 3, Column = 1, Text = "50.0", NumberFormat = "0.0" }
+                }
+            };
+
+            var fields = new FieldMatcher().MatchMeasurementFields(sheet);
+
+            Assert.AreEqual(1, fields.Count);
+            Assert.AreEqual(1, fields[0].Range.StartRow);
+            Assert.AreEqual(3, fields[0].Range.EndRow);
+        }
+
+        [DataTestMethod]
+        [DataRow("1.1 示值误差")]
+        [DataRow("1.1、示值误差")]
+        [DataRow("1.1，示值误差")]
+        [DataRow("1.1,示值误差")]
+        [DataRow("1.1.示值误差")]
+        [DataRow("1、示值误差")]
+        [DataRow("1，示值误差")]
+        [DataRow("1.示值误差")]
+        public void FieldMatcherAcceptsSupportedTitleSeparators(string title)
+        {
+            var sheet = new SheetSnapshot
+            {
+                Name = "Sheet1",
+                Cells = new List<CellMeta>
+                {
+                    new CellMeta { Row = 1, Column = 1, Text = title },
+                    new CellMeta { Row = 2, Column = 2, Text = "10" }
+                }
+            };
+
+            var fields = new FieldMatcher().MatchMeasurementFields(sheet);
+
+            Assert.AreEqual(1, fields.Count);
+            Assert.AreEqual(title.Replace(" ", string.Empty), fields[0].Alias);
+            Assert.AreEqual(2, fields[0].Range.EndRow);
+        }
+
+        [TestMethod]
+        public void FieldMatcherCombinesSplitTopLevelTitleAndUsesItAsBoundary()
+        {
+            var sheet = new SheetSnapshot
+            {
+                Name = "Sheet1",
+                Cells = new List<CellMeta>
+                {
+                    new CellMeta { Row = 1, Column = 1, Text = "2.4、响应时间" },
+                    new CellMeta { Row = 2, Column = 2, Text = "60" },
+                    new CellMeta
+                    {
+                        Row = 3,
+                        Column = 1,
+                        Text = "3、",
+                        IsMerged = true,
+                        MergeRange = new CellRange
+                        {
+                            SheetName = "Sheet1",
+                            StartRow = 3,
+                            StartColumn = 1,
+                            EndRow = 3,
+                            EndColumn = 2
+                        }
+                    },
+                    new CellMeta
+                    {
+                        Row = 3,
+                        Column = 3,
+                        Text = "O2",
+                        IsMerged = true,
+                        MergeRange = new CellRange
+                        {
+                            SheetName = "Sheet1",
+                            StartRow = 3,
+                            StartColumn = 3,
+                            EndRow = 3,
+                            EndColumn = 5
+                        }
+                    },
+                    new CellMeta { Row = 3, Column = 18, Text = "量程：" },
+                    new CellMeta { Row = 4, Column = 1, Text = "3.1、报警功能及报警动作值" },
+                    new CellMeta { Row = 5, Column = 2, Text = "声光报警正常" }
+                }
+            };
+
+            var fields = new FieldMatcher().MatchMeasurementFields(sheet);
+
+            Assert.AreEqual(2, fields.Count);
+            Assert.AreEqual("2.4、响应时间", fields[0].Alias);
+            Assert.AreEqual(2, fields[0].Range.EndRow);
+            Assert.AreEqual("3.1、报警功能及报警动作值", fields[1].Alias);
+            Assert.AreEqual(4, fields[1].Range.StartRow);
+        }
+
+        [TestMethod]
+        public void FieldMatcherUsesChildTitlesWhenPresentAndKeepsSectionBoundaries()
+        {
+            var sheet = new SheetSnapshot
+            {
+                Name = "Sheet1",
+                Cells = new List<CellMeta>
+                {
+                    new CellMeta { Row = 1, Column = 1, Text = "1、第一组" },
+                    new CellMeta { Row = 2, Column = 1, Text = "1.1、示值误差" },
+                    new CellMeta { Row = 3, Column = 2, Text = "10" },
+                    new CellMeta { Row = 5, Column = 1, Text = "1.2、自定义校准项目" },
+                    new CellMeta { Row = 6, Column = 2, Text = "20" },
+                    new CellMeta { Row = 8, Column = 1, Text = "2、响应时间" },
+                    new CellMeta { Row = 9, Column = 2, Text = "30" }
+                }
+            };
+
+            var fields = new FieldMatcher().MatchMeasurementFields(sheet);
+
+            Assert.AreEqual(3, fields.Count);
+            Assert.AreEqual("1.1、示值误差", fields[0].Alias);
+            Assert.AreEqual(2, fields[0].Range.StartRow);
+            Assert.AreEqual(4, fields[0].Range.EndRow);
+            Assert.AreEqual("1.2、自定义校准项目", fields[1].Alias);
+            Assert.AreEqual(5, fields[1].Range.StartRow);
+            Assert.AreEqual(7, fields[1].Range.EndRow);
+            Assert.AreEqual("2、响应时间", fields[2].Alias);
+            Assert.AreEqual(8, fields[2].Range.StartRow);
+            Assert.AreEqual(9, fields[2].Range.EndRow);
         }
 
         [TestMethod]
@@ -2106,6 +2313,7 @@ namespace ExcelCalibrationAddin.Core.Tests
                     Mpe = 0.01,
                     ErrorType = ErrorType.Absolute,
                     ValueCount = 3,
+                    RequireVisibleVariation = true,
                     DecimalPlaces = 2
                 }));
 
@@ -3503,6 +3711,66 @@ namespace ExcelCalibrationAddin.Core.Tests
         }
 
         [TestMethod]
+        public void StructureAnalyzerUsesActiveRelativeBranchOfNestedCountIfFormula()
+        {
+            var snapshot = BuildFiveInOneIndicationSnapshot(
+                gasName: "NH3",
+                rangeUpper: 100,
+                percentGasListContainsGas: true,
+                formulaResult: "6.5",
+                formulaRawValue: "6.5",
+                requirementText: "±10");
+            var rule = BuildFiveInOneIndicationRule();
+
+            new MeasurementRuleStructureAnalyzer().Apply(snapshot, new[] { rule });
+
+            Assert.AreEqual(ErrorFormulaScale.RelativeToStandardValue, rule.ErrorFormula.Scale);
+            Assert.IsTrue(rule.ErrorFormula.FormulaMultipliesBy100);
+            Assert.IsFalse(rule.ErrorFormula.FormulaDividesByReferenceRange);
+        }
+
+        [TestMethod]
+        public void StructureAnalyzerUsesActiveReferencedBranchOfNestedCountIfFormula()
+        {
+            var snapshot = BuildFiveInOneIndicationSnapshot(
+                gasName: "O2",
+                rangeUpper: 25,
+                percentGasListContainsGas: false,
+                formulaResult: "1.2",
+                formulaRawValue: "1.2",
+                requirementText: "±3");
+            snapshot.Sheets[0].Cells.Add(new CellMeta { Row = 9, Column = 38, Text = "O2", RawValueText = "O2" });
+            var rule = BuildFiveInOneIndicationRule();
+
+            new MeasurementRuleStructureAnalyzer().Apply(snapshot, new[] { rule });
+
+            Assert.AreEqual(ErrorFormulaScale.RelativeToReferenceRange, rule.ErrorFormula.Scale);
+            Assert.IsTrue(rule.ErrorFormula.FormulaMultipliesBy100);
+            Assert.IsTrue(rule.ErrorFormula.FormulaDividesByReferenceRange);
+        }
+
+        [TestMethod]
+        public void FormulaVerifierAcceptsActiveRelativePercentBranchAgainstHeaderOnlyPercentLimit()
+        {
+            var snapshot = BuildFiveInOneIndicationSnapshot(
+                gasName: "NH3",
+                rangeUpper: 100,
+                percentGasListContainsGas: true,
+                formulaResult: "6.5",
+                formulaRawValue: "6.5",
+                requirementText: "±10");
+            var rule = BuildFiveInOneIndicationRule();
+            rule.FixedMpe = 0.1;
+            rule.RequirementOperator = TechnicalRequirementOperator.PlusMinus;
+            rule.ErrorType = ErrorType.Relative;
+
+            new FormulaResultVerifier().Verify(snapshot, new[] { rule });
+
+            Assert.AreEqual(ErrorFormulaScale.RelativeToStandardValue, rule.ErrorFormula.Scale);
+            Assert.IsTrue(rule.ErrorFormula.FormulaMultipliesBy100);
+        }
+
+        [TestMethod]
         public void StructureAnalyzerRecordsSupplementalFormulas()
         {
             var snapshot = new WorkbookSnapshot
@@ -4277,6 +4545,88 @@ namespace ExcelCalibrationAddin.Core.Tests
                             new CellMeta { Row = 6, Column = 1, Text = "±0.5" }
                         }
                     }
+                }
+            };
+        }
+
+        private static WorkbookSnapshot BuildFiveInOneIndicationSnapshot(
+            string gasName,
+            double rangeUpper,
+            bool percentGasListContainsGas,
+            string formulaResult,
+            string formulaRawValue,
+            string requirementText)
+        {
+            var formula =
+                "=IF(COUNTIF($AL$9:$AL$14,$C$69)>0,ROUND((Q76-A76)/($X$69-$U$69)*100,1)," +
+                "IF(AND(COUNTIF($AL$15:$AL$30,$C$69)>0,$X$69>15),ROUND((Q76-A76)/A76*100,1)," +
+                "ROUND(Q76-A76,IF($AH$69=\"整数\",0,IF($AH$69=\"一位小数\",1,2)))))";
+            var cells = new List<CellMeta>
+            {
+                new CellMeta { Row = 69, Column = 3, Text = gasName, RawValueText = gasName },
+                new CellMeta { Row = 69, Column = 21, Text = "0", RawValueText = "0" },
+                new CellMeta { Row = 69, Column = 24, Text = rangeUpper.ToString(CultureInfo.InvariantCulture), RawValueText = rangeUpper.ToString(CultureInfo.InvariantCulture) },
+                new CellMeta { Row = 69, Column = 34, Text = "整数", RawValueText = "整数" },
+                new CellMeta { Row = 75, Column = 20, Text = "示值误差(%)" },
+                new CellMeta { Row = 75, Column = 23, Text = "技术要求(%)" },
+                new CellMeta { Row = 76, Column = 1, Text = "20.0", RawValueText = "20" },
+                new CellMeta { Row = 76, Column = 17, Text = "21.3", RawValueText = "21.3", Formula = "=ROUND(AVERAGE(E76:P76),1)" },
+                new CellMeta
+                {
+                    Row = 76,
+                    Column = 20,
+                    Text = formulaResult,
+                    DisplayText = formulaResult,
+                    RawValueText = formulaRawValue,
+                    Formula = formula
+                },
+                new CellMeta
+                {
+                    Row = 76,
+                    Column = 23,
+                    Text = requirementText,
+                    DisplayText = requirementText,
+                    RawValueText = requirementText
+                }
+            };
+
+            if (percentGasListContainsGas)
+            {
+                cells.Add(new CellMeta { Row = 15, Column = 38, Text = gasName, RawValueText = gasName });
+            }
+
+            return new WorkbookSnapshot
+            {
+                Sheets = new List<SheetSnapshot>
+                {
+                    new SheetSnapshot
+                    {
+                        Name = "Sheet1",
+                        Cells = cells
+                    }
+                }
+            };
+        }
+
+        private static MeasurementRule BuildFiveInOneIndicationRule()
+        {
+            return new MeasurementRule
+            {
+                FieldName = "示值误差",
+                FieldAlias = "6.2、示值误差",
+                TargetRange = new CellRange { SheetName = "Sheet1", StartRow = 76, EndRow = 76, StartColumn = 5, EndColumn = 16 },
+                StandardValueSource = new ParameterSource { Range = RangeAt(76, 1) },
+                AverageSource = new ParameterSource { Range = RangeAt(76, 17) },
+                ErrorSource = new ParameterSource { Range = RangeAt(76, 20) },
+                MpeSource = new ParameterSource { Range = RangeAt(76, 23) },
+                RangeSource = new ParameterSource
+                {
+                    Range = new CellRange { SheetName = "Sheet1", StartRow = 69, EndRow = 69, StartColumn = 21, EndColumn = 24 }
+                },
+                ErrorFormula = new ErrorFormulaInfo
+                {
+                    HasFormula = true,
+                    Formula = "=IF(COUNTIF($AL$9:$AL$14,$C$69)>0,ROUND((Q76-A76)/($X$69-$U$69)*100,1),IF(AND(COUNTIF($AL$15:$AL$30,$C$69)>0,$X$69>15),ROUND((Q76-A76)/A76*100,1),ROUND(Q76-A76,IF($AH$69=\"整数\",0,IF($AH$69=\"一位小数\",1,2)))))"
                 }
             };
         }

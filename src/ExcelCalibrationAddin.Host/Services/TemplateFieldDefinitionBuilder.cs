@@ -43,6 +43,13 @@ namespace ExcelCalibrationAddin.Host.Services
                 definition.Regions.Add(BuildRegion(sheet, mapping, pair.Key, pair.Value, ranges));
             }
 
+            foreach (var constraint in mapping.AdditionalJudgementConstraints ?? new List<MeasurementJudgementConstraint>())
+            {
+                AddConstraintRegion(definition, sheet, mapping, ranges, TemplateRegionRole.ErrorValue, constraint?.ErrorSource?.Range);
+                AddConstraintRegion(definition, sheet, mapping, ranges, TemplateRegionRole.TechnicalRequirement, constraint?.MpeSource?.Range);
+                AddConstraintRegion(definition, sheet, mapping, ranges, TemplateRegionRole.Result, constraint?.ResultSource?.Range);
+            }
+
             return definition;
         }
 
@@ -96,7 +103,8 @@ namespace ExcelCalibrationAddin.Host.Services
                 UncertaintyRange = CloneRange(rule.UncertaintySource?.Range) ??
                     CombineRowRanges(rule.RowMappings, mapping => mapping.UncertaintyRange),
                 ResultRange = CloneRange(rule.ResultSource?.Range) ??
-                    CombineRowRanges(rule.RowMappings, mapping => mapping.ResultRange)
+                    CombineRowRanges(rule.RowMappings, mapping => mapping.ResultRange),
+                AdditionalJudgementConstraints = MeasurementRuleCloner.CloneJudgementConstraints(rule.AdditionalJudgementConstraints)
             });
         }
 
@@ -410,6 +418,39 @@ namespace ExcelCalibrationAddin.Host.Services
                 [TemplateRegionRole.Uncertainty] = mapping.UncertaintyRange,
                 [TemplateRegionRole.Result] = mapping.ResultRange
             };
+        }
+
+        private void AddConstraintRegion(
+            TemplateFieldDefinition definition,
+            SheetSnapshot sheet,
+            TemplateRegionMapping mapping,
+            Dictionary<TemplateRegionRole, CellRange> ranges,
+            TemplateRegionRole role,
+            CellRange range)
+        {
+            if (definition == null || range == null)
+            {
+                return;
+            }
+
+            if ((definition.Regions ?? new List<TemplateRegionDefinition>()).Any(region =>
+                region?.Role == role && SameRange(region.Range, range)))
+            {
+                return;
+            }
+
+            definition.Regions.Add(BuildRegion(sheet, mapping, role, range, ranges));
+        }
+
+        private static bool SameRange(CellRange left, CellRange right)
+        {
+            return left != null &&
+                right != null &&
+                string.Equals(left.SheetName, right.SheetName, StringComparison.OrdinalIgnoreCase) &&
+                left.StartRow == right.StartRow &&
+                left.EndRow == right.EndRow &&
+                left.StartColumn == right.StartColumn &&
+                left.EndColumn == right.EndColumn;
         }
 
         private static IReadOnlyList<LogicalCellRange> GetLogicalCells(SheetSnapshot sheet, CellRange range)

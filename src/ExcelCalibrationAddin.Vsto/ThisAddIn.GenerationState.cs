@@ -37,7 +37,11 @@ namespace ExcelCalibrationAddin.Vsto
                 // Saved task-pane rules can contain references whose values must be read from
                 // the current workbook (for example, a full-scale reference range). Do not
                 // bypass parameter resolution merely because the rules came from the cache.
-                var writeResult = _facade.WriteRules(workbook, rulesToWrite, appliedConfiguration);
+                var writeResult = _facade.WriteRules(
+                    workbook,
+                    rulesToWrite,
+                    appliedConfiguration,
+                    cachedState.ExactFingerprint);
                 cachedState.GenerationWarningMessages = writeResult?.WarningMessages ?? new List<string>();
             }
             finally

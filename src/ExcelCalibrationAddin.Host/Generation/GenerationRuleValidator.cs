@@ -1,5 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
 using ExcelCalibrationAddin.Contracts;
+using ExcelCalibrationAddin.Host.Services;
 
 namespace ExcelCalibrationAddin.Host.Generation
 {
@@ -52,9 +56,111 @@ namespace ExcelCalibrationAddin.Host.Generation
                 (rule.FieldAlias ?? string.Empty).IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        public static bool IsTimeNamedRule(MeasurementRule rule)
+        {
+            return ContainsRuleName(rule, "时间");
+        }
+
         public static bool IsUpperLimitRule(MeasurementRule rule)
         {
-            return ResolveRuleName(rule).IndexOf("响应时间", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!IsTimeNamedRule(rule))
+            {
+                return false;
+            }
+
+            var requirementOperator = ResolveUpperLimitOperator(rule);
+            return ResolveUpperLimitUnit(rule) == "s" &&
+                (requirementOperator == TechnicalRequirementOperator.LessThan ||
+                 requirementOperator == TechnicalRequirementOperator.LessThanOrEqual ||
+                 requirementOperator == TechnicalRequirementOperator.GreaterThan ||
+                 requirementOperator == TechnicalRequirementOperator.GreaterThanOrEqual);
+        }
+
+        public static TechnicalRequirementOperator ResolveUpperLimitOperator(MeasurementRule rule)
+        {
+            var requirementOperator = rule?.RequirementOperator ?? TechnicalRequirementOperator.None;
+            var pattern = MpeValuePatternCodec.Parse(rule?.MpeSource?.ValuePattern);
+            if (requirementOperator == TechnicalRequirementOperator.None && pattern != null)
+            {
+                requirementOperator = pattern.Operator;
+            }
+
+            if (requirementOperator == TechnicalRequirementOperator.None)
+            {
+                requirementOperator = InferOperatorFromResultFormula(rule);
+            }
+
+            return requirementOperator;
+        }
+
+        public static string ResolveUpperLimitUnit(MeasurementRule rule)
+        {
+            var pattern = MpeValuePatternCodec.Parse(rule?.MpeSource?.ValuePattern);
+            var unit = pattern?.Unit;
+            if (string.IsNullOrWhiteSpace(unit))
+            {
+                unit = MpeValuePatternCodec.NormalizeUnit(rule?.FormatRule?.UnitSuffix);
+            }
+
+            if (string.IsNullOrWhiteSpace(unit))
+            {
+                unit = MpeValuePatternCodec.NormalizeUnit(ResolveTemplateRequirementUnit(rule));
+            }
+
+            return unit ?? string.Empty;
+        }
+
+        public static TechnicalRequirementOperator InferOperatorFromResultFormula(MeasurementRule rule)
+        {
+            var formula = rule?.ErrorFormula?.ResultFormula;
+            if (string.IsNullOrWhiteSpace(formula))
+            {
+                return TechnicalRequirementOperator.None;
+            }
+
+            var fallbackSheetName = rule.ResultSource?.Range?.SheetName ??
+                rule.MpeSource?.Range?.SheetName ??
+                rule.ErrorSource?.Range?.SheetName ??
+                rule.TargetRange?.SheetName ??
+                string.Empty;
+            foreach (Match match in ResultComparisonRegex.Matches(formula))
+            {
+                var requirementOperator = ParseComparisonOperator(match.Groups["op"].Value);
+                if (requirementOperator == TechnicalRequirementOperator.None)
+                {
+                    continue;
+                }
+
+                var leftRanges = TemplateFormulaParser.ExtractReferencedRanges(
+                    match.Groups["left"].Value,
+                    fallbackSheetName);
+                var rightRanges = TemplateFormulaParser.ExtractReferencedRanges(
+                    match.Groups["right"].Value,
+                    fallbackSheetName);
+                var leftIsRequirement = leftRanges.Any(range =>
+                    RangesOverlap(range, rule.MpeSource?.Range));
+                var rightIsRequirement = rightRanges.Any(range =>
+                    RangesOverlap(range, rule.MpeSource?.Range));
+                var leftIsMeasurement = leftRanges.Any(range =>
+                    RangesOverlap(range, rule.ErrorSource?.Range) ||
+                    RangesOverlap(range, rule.AverageSource?.Range) ||
+                    RangesOverlap(range, rule.TargetRange));
+                var rightIsMeasurement = rightRanges.Any(range =>
+                    RangesOverlap(range, rule.ErrorSource?.Range) ||
+                    RangesOverlap(range, rule.AverageSource?.Range) ||
+                    RangesOverlap(range, rule.TargetRange));
+                if (leftIsMeasurement && rightIsRequirement)
+                {
+                    return requirementOperator;
+                }
+
+                if (leftIsRequirement && rightIsMeasurement)
+                {
+                    return InvertComparisonOperator(requirementOperator);
+                }
+            }
+
+            return TechnicalRequirementOperator.None;
         }
 
         public static bool IsNonNumericRule(MeasurementRule rule)
@@ -78,6 +184,7 @@ namespace ExcelCalibrationAddin.Host.Generation
 
         public static void ValidateRule(MeasurementRule rule, int writableCellCount, string writableFailureReason = null)
         {
+            ValidateFormulaDependencies(rule);
             var ruleName = ResolveRuleName(rule);
             if (rule.TargetRange == null)
             {
@@ -144,6 +251,7 @@ namespace ExcelCalibrationAddin.Host.Generation
 
         private static void ValidateCommonWritableRule(MeasurementRule rule, int writableCellCount, string writableFailureReason)
         {
+            ValidateFormulaDependencies(rule);
             if (rule?.TargetRange == null)
             {
                 throw new InvalidOperationException($"“{ResolveRuleName(rule)}”未设置测量值写入区域。");
@@ -155,11 +263,134 @@ namespace ExcelCalibrationAddin.Host.Generation
             }
         }
 
+        public static void ValidateFormulaDependencies(MeasurementRule rule)
+        {
+            var unresolved = rule?.ErrorFormula?.UnresolvedDependencies?
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? new System.Collections.Generic.List<string>();
+            if (unresolved.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    $"“{ResolveRuleName(rule)}”包含当前无法安全解析的公式依赖：{string.Join("；", unresolved)}。" +
+                    "请改为当前工作簿内的普通单元格引用后重新识别模板。");
+            }
+
+            foreach (var constraint in rule?.AdditionalJudgementConstraints ?? new System.Collections.Generic.List<MeasurementJudgementConstraint>())
+            {
+                var constraintUnresolved = constraint?.ErrorFormula?.UnresolvedDependencies?
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList() ?? new System.Collections.Generic.List<string>();
+                if (constraintUnresolved.Count > 0)
+                {
+                    throw new InvalidOperationException(
+                        $"“{ResolveRuleName(rule)}”的附属判定包含当前无法安全解析的公式依赖：{string.Join("；", constraintUnresolved)}。" +
+                        "请改为当前工作簿内的普通单元格引用后重新识别模板。");
+                }
+            }
+        }
+
         private static string AppendReason(string message, string reason)
         {
             return string.IsNullOrWhiteSpace(reason)
                 ? message
                 : $"{message}{Environment.NewLine}原因：{reason}";
+        }
+
+        private static readonly Regex ResultComparisonRegex = new Regex(
+            @"(?<left>(?:(?:'[^']+'|[A-Za-z0-9_一-鿿]+)!)?\$?[A-Z]{1,3}\$?\d+(?::(?:(?:'[^']+'|[A-Za-z0-9_一-鿿]+)!)?\$?[A-Z]{1,3}\$?\d+)?)\s*(?<op><=|>=|<|>)\s*(?<right>(?:(?:'[^']+'|[A-Za-z0-9_一-鿿]+)!)?\$?[A-Z]{1,3}\$?\d+(?::(?:(?:'[^']+'|[A-Za-z0-9_一-鿿]+)!)?\$?[A-Z]{1,3}\$?\d+)?)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static TechnicalRequirementOperator ParseComparisonOperator(string text)
+        {
+            switch ((text ?? string.Empty).Trim())
+            {
+                case "<":
+                    return TechnicalRequirementOperator.LessThan;
+                case "<=":
+                    return TechnicalRequirementOperator.LessThanOrEqual;
+                case ">":
+                    return TechnicalRequirementOperator.GreaterThan;
+                case ">=":
+                    return TechnicalRequirementOperator.GreaterThanOrEqual;
+                default:
+                    return TechnicalRequirementOperator.None;
+            }
+        }
+
+        private static TechnicalRequirementOperator InvertComparisonOperator(TechnicalRequirementOperator requirementOperator)
+        {
+            switch (requirementOperator)
+            {
+                case TechnicalRequirementOperator.LessThan:
+                    return TechnicalRequirementOperator.GreaterThan;
+                case TechnicalRequirementOperator.LessThanOrEqual:
+                    return TechnicalRequirementOperator.GreaterThanOrEqual;
+                case TechnicalRequirementOperator.GreaterThan:
+                    return TechnicalRequirementOperator.LessThan;
+                case TechnicalRequirementOperator.GreaterThanOrEqual:
+                    return TechnicalRequirementOperator.LessThanOrEqual;
+                default:
+                    return TechnicalRequirementOperator.None;
+            }
+        }
+
+        private static bool RangesOverlap(CellRange left, CellRange right)
+        {
+            if (!HasValidRange(left) || !HasValidRange(right))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(left.SheetName) &&
+                !string.IsNullOrWhiteSpace(right.SheetName) &&
+                !string.Equals(left.SheetName, right.SheetName, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return left.StartRow <= right.EndRow &&
+                right.StartRow <= left.EndRow &&
+                left.StartColumn <= right.EndColumn &&
+                right.StartColumn <= left.EndColumn;
+        }
+
+        private static string ResolveTemplateRequirementUnit(MeasurementRule rule)
+        {
+            var regions = rule?.TemplateDefinition?.Regions ?? new List<TemplateRegionDefinition>();
+            foreach (var region in regions.Where(item =>
+                item != null &&
+                (item.Role == TemplateRegionRole.TechnicalRequirement ||
+                 item.Role == TemplateRegionRole.MeasurementValue ||
+                 item.Role == TemplateRegionRole.AverageValue)))
+            {
+                var unit = MpeValuePatternCodec.NormalizeUnit(region.Unit) ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(unit))
+                {
+                    return unit;
+                }
+
+                foreach (var candidate in region.Units ?? new List<string>())
+                {
+                    unit = MpeValuePatternCodec.NormalizeUnit(candidate);
+                    if (!string.IsNullOrWhiteSpace(unit))
+                    {
+                        return unit;
+                    }
+                }
+
+                foreach (var requirement in region.RequirementValues ?? new List<TemplateRequirementValue>())
+                {
+                    unit = MpeValuePatternCodec.NormalizeUnit(requirement?.Unit);
+                    if (!string.IsNullOrWhiteSpace(unit))
+                    {
+                        return unit;
+                    }
+                }
+            }
+
+            return string.Empty;
         }
     }
 }

@@ -106,6 +106,69 @@ namespace ExcelCalibrationAddin.Host.Services
             {
                 ApplyReferenceRange(sheet, rule, null);
             }
+
+            if (rule.RequirementOperator == TechnicalRequirementOperator.None)
+            {
+                var inferredOperator = Generation.GenerationRuleValidator.InferOperatorFromResultFormula(rule);
+                if (inferredOperator != TechnicalRequirementOperator.None)
+                {
+                    rule.RequirementOperator = inferredOperator;
+                    if (rule.MpeSource != null)
+                    {
+                        var pattern = MpeValuePatternCodec.Parse(rule.MpeSource.ValuePattern);
+                        rule.MpeSource.ValuePattern = MpeValuePatternCodec.Build(
+                            pattern?.ErrorType ?? rule.ErrorType,
+                            pattern?.ScaleFactor ?? 1d,
+                            inferredOperator,
+                            string.IsNullOrWhiteSpace(pattern?.Unit)
+                                ? Generation.GenerationRuleValidator.ResolveUpperLimitUnit(rule)
+                                : pattern.Unit);
+                    }
+                }
+            }
+
+            ResolveAdditionalJudgementConstraints(snapshot, sheet, rule);
+        }
+
+        private void ResolveAdditionalJudgementConstraints(
+            WorkbookSnapshot snapshot,
+            SheetSnapshot sheet,
+            MeasurementRule rule)
+        {
+            if (rule == null || (rule.AdditionalJudgementConstraints ?? new List<MeasurementJudgementConstraint>()).Count == 0)
+            {
+                return;
+            }
+
+            var original = MeasurementJudgementConstraintHelper.Capture(rule, null);
+            var resolvedConstraints = new List<MeasurementJudgementConstraint>();
+            foreach (var constraint in rule.AdditionalJudgementConstraints)
+            {
+                if (constraint == null)
+                {
+                    continue;
+                }
+
+                MeasurementJudgementConstraintHelper.Overlay(rule, constraint);
+                var mpeResolution = ResolveMpe(sheet, rule);
+                if (mpeResolution != null)
+                {
+                    rule.FixedMpe = mpeResolution.Mpe;
+                    rule.FixedNegativeTolerance = mpeResolution.NegativeTolerance;
+                    rule.FixedPositiveTolerance = mpeResolution.PositiveTolerance;
+                    rule.RequirementOperator = mpeResolution.RequirementOperator;
+                    rule.ErrorType = mpeResolution.ErrorType;
+                    if (rule.MpeSource != null && !string.IsNullOrWhiteSpace(mpeResolution.ValuePattern))
+                    {
+                        rule.MpeSource.ValuePattern = mpeResolution.ValuePattern;
+                    }
+                }
+
+                resolvedConstraints.Add(MeasurementJudgementConstraintHelper.Capture(rule, constraint));
+            }
+
+            MeasurementJudgementConstraintHelper.Overlay(rule, original);
+            rule.AdditionalJudgementConstraints = resolvedConstraints;
         }
 
         private static bool RequiresReferenceRange(MeasurementRule rule, ErrorType resolvedErrorType)

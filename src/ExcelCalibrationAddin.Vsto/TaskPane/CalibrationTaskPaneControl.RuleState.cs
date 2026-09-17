@@ -6,8 +6,9 @@ using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
-using ExcelCalibrationAddin.Contracts;
-using ExcelCalibrationAddin.Host.ViewModels;
+	using ExcelCalibrationAddin.Contracts;
+	using ExcelCalibrationAddin.Host.Services;
+	using ExcelCalibrationAddin.Host.ViewModels;
 
 namespace ExcelCalibrationAddin.Vsto.TaskPane
 {
@@ -39,8 +40,9 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 			val2.MpeSource = TaskPaneModelCloner.BuildParameterSource(val2.MpeSource, "技术要求", val.TechnicalRequirementRange);
 			val2.RangeSource = TaskPaneModelCloner.BuildParameterSource(val2.RangeSource, "量程", val.RangeValueRange);
 			val2.UncertaintySource = TaskPaneModelCloner.BuildParameterSource(val2.UncertaintySource, "不确定度", val.UncertaintyRange);
-			val2.ResultSource = TaskPaneModelCloner.BuildParameterSource(val2.ResultSource, "结论", val.ResultRange);
-			if (val2.TargetRange != null)
+				val2.ResultSource = TaskPaneModelCloner.BuildParameterSource(val2.ResultSource, "结论", val.ResultRange);
+				val2.AdditionalJudgementConstraints = MeasurementRuleCloner.CloneJudgementConstraints(val.AdditionalJudgementConstraints);
+				if (val2.TargetRange != null)
 			{
 				val2.GroupSize = ResolveGroupSize(val2);
 			}
@@ -58,18 +60,18 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 			return null;
 		}
 
+		var rangeMatch = rules.FirstOrDefault(rule => RangesEqual(rule.TargetRange, mapping.MeasurementValueRange));
+		if (rangeMatch != null)
+		{
+			return rangeMatch;
+		}
+
 		var projectName = NormalizeProjectName(mapping.ProjectName);
-		var nameMatch = rules.FirstOrDefault(rule =>
+		return rules.FirstOrDefault(rule =>
 			string.Equals(
 				NormalizeProjectName(string.IsNullOrWhiteSpace(rule.FieldAlias) ? rule.FieldName : rule.FieldAlias),
 				projectName,
 				StringComparison.Ordinal));
-		if (nameMatch != null)
-		{
-			return nameMatch;
-		}
-
-		return rules.FirstOrDefault(rule => RangesEqual(rule.TargetRange, mapping.MeasurementValueRange));
 	}
 
 	private static string NormalizeProjectName(string value)
@@ -222,30 +224,49 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		}
 	}
 
-	private void CopyPreviousItemStructure(int rowIndex)
+	private void CopySameNameItemStructure(int rowIndex)
 	{
-		if (rowIndex <= 0 || rowIndex >= _currentMappings.Count)
+		if (rowIndex < 0 || rowIndex >= _currentMappings.Count)
 		{
 			return;
 		}
 
-		TemplateRegionMapping previous = _currentMappings[rowIndex - 1];
 		TemplateRegionMapping current = _currentMappings[rowIndex];
-		int rowOffset = ResolveStructureRowOffset(previous, current);
-		SetRangeForField(rowIndex, ColumnSection, OffsetRange(previous.SectionRange, rowOffset));
-		SetRangeForField(rowIndex, ColumnSetpoint, OffsetRange(previous.SetpointValueRange, rowOffset));
-		SetRangeForField(rowIndex, ColumnStandard, OffsetRange(previous.StandardValueRange, rowOffset));
-		SetRangeForField(rowIndex, ColumnMeasurement, OffsetRange(previous.MeasurementValueRange, rowOffset));
-		SetRangeForField(rowIndex, ColumnAverage, OffsetRange(previous.AverageValueRange, rowOffset));
-		SetRangeForField(rowIndex, ColumnError, OffsetRange(previous.ErrorValueRange, rowOffset));
-		SetRangeForField(rowIndex, ColumnRequirement, OffsetRange(previous.TechnicalRequirementRange, rowOffset));
-		SetRangeForField(rowIndex, ColumnUncertainty, OffsetRange(previous.UncertaintyRange, rowOffset));
-		SetRangeForField(rowIndex, ColumnRange, OffsetRange(previous.RangeValueRange, rowOffset));
-		SetRangeForField(rowIndex, ColumnResult, OffsetRange(previous.ResultRange, rowOffset));
+		var source = FindNearestSameNameMapping(rowIndex);
+		if (source == null || current.SectionRange == null)
+		{
+			MessageBox.Show("当前项目没有可复制的同名项目结构，或尚未识别项目区域。", "复制同名项结构");
+			return;
+		}
+
+		int rowOffset = ResolveStructureRowOffset(source, current);
+		SetRangeForField(rowIndex, ColumnSetpoint, OffsetRangeWithinSection(source.SetpointValueRange, rowOffset, current.SectionRange));
+		SetRangeForField(rowIndex, ColumnStandard, OffsetRangeWithinSection(source.StandardValueRange, rowOffset, current.SectionRange));
+		SetRangeForField(rowIndex, ColumnMeasurement, OffsetRangeWithinSection(source.MeasurementValueRange, rowOffset, current.SectionRange));
+		SetRangeForField(rowIndex, ColumnAverage, OffsetRangeWithinSection(source.AverageValueRange, rowOffset, current.SectionRange));
+		SetRangeForField(rowIndex, ColumnError, OffsetRangeWithinSection(source.ErrorValueRange, rowOffset, current.SectionRange));
+		SetRangeForField(rowIndex, ColumnRequirement, OffsetRangeWithinSection(source.TechnicalRequirementRange, rowOffset, current.SectionRange));
+		SetRangeForField(rowIndex, ColumnUncertainty, OffsetRangeWithinSection(source.UncertaintyRange, rowOffset, current.SectionRange));
+		SetRangeForField(rowIndex, ColumnRange, OffsetRangeWithinSection(source.RangeValueRange, rowOffset, current.SectionRange));
+		SetRangeForField(rowIndex, ColumnResult, OffsetRangeWithinSection(source.ResultRange, rowOffset, current.SectionRange));
 		BindMappings();
 		UpdateTemplateLibraryButtons();
 		NotifyGenerationStateChanged();
-		MessageBox.Show("已复制上一项区域结构。", "复制上一项结构", MessageBoxButtons.OK, MessageBoxIcon.Information);
+		MessageBox.Show("已复制最近同名项目的区域结构。", "复制同名项结构", MessageBoxButtons.OK, MessageBoxIcon.Information);
+	}
+
+	private TemplateRegionMapping FindNearestSameNameMapping(int rowIndex)
+	{
+		var name = NormalizeProjectName(_currentMappings[rowIndex]?.ProjectName);
+		if (string.IsNullOrWhiteSpace(name)) return null;
+		return _currentMappings
+			.Select((mapping, index) => new { Mapping = mapping, Index = index })
+			.Where(item => item.Index != rowIndex &&
+				NormalizeProjectName(item.Mapping?.ProjectName) == name)
+			.OrderBy(item => Math.Abs(item.Index - rowIndex))
+			.ThenBy(item => item.Index)
+			.Select(item => item.Mapping)
+			.FirstOrDefault();
 	}
 
 	private static int ResolveStructureRowOffset(TemplateRegionMapping previous, TemplateRegionMapping current)
@@ -263,16 +284,25 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		return 0;
 	}
 
-	private static CellRange OffsetRange(CellRange range, int rowOffset)
+	private static CellRange OffsetRangeWithinSection(CellRange range, int rowOffset, CellRange section)
 	{
-		if (range == null)
+		if (range == null || section == null ||
+			!string.Equals(range.SheetName, section.SheetName, StringComparison.OrdinalIgnoreCase))
 		{
 			return null;
 		}
 
 		var clone = TaskPaneModelCloner.CloneRange(range);
-		clone.StartRow = Math.Max(1, clone.StartRow + rowOffset);
-		clone.EndRow = Math.Max(clone.StartRow, clone.EndRow + rowOffset);
+		if (clone.StartColumn < section.StartColumn || clone.EndColumn > section.EndColumn)
+		{
+			return null;
+		}
+		clone.StartRow = Math.Max(section.StartRow, clone.StartRow + rowOffset);
+		clone.EndRow = Math.Min(section.EndRow, clone.EndRow + rowOffset);
+		if (clone.EndRow < clone.StartRow)
+		{
+			return null;
+		}
 		return clone;
 	}
 

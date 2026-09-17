@@ -67,6 +67,14 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		label.SetBounds(32, 10, panel.Width - 112, 24);
 		label.Tag = rowIndex;
 		label.Click += CalibrationCardHeader_Click;
+		if (!_featuresBlocked)
+		{
+			ContextMenuStrip titleMenu = new ContextMenuStrip();
+			ToolStripMenuItem renameItem = new ToolStripMenuItem("重命名校准项");
+			renameItem.Click += delegate { RenameCalibrationItem(rowIndex); };
+			titleMenu.Items.Add(renameItem);
+			label.ContextMenuStrip = titleMenu;
+		}
 		checkBox.FlatAppearance.BorderColor = Color.FromArgb(174, 178, 184);
 		checkBox.FlatAppearance.CheckedBackColor = Color.FromArgb(232, 247, 238);
 		ExcelToggleSwitch enabledToggle = new ExcelToggleSwitch
@@ -251,10 +259,14 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 			Text = "按测量点输入标准值，数量变化会即时保留已填写内容。"
 		};
 		label3.SetBounds(0, 52, width, 16);
-		label3.Visible = false;
+		bool showIncompleteWarning = _manualStandardRows.Contains(rowIndex) &&
+			(rule?.ManualStandardValues?.Count ?? 0) > 1;
+		label3.Text = "多标准值时未开发完全";
+		label3.ForeColor = Color.FromArgb(180, 83, 9);
+		label3.Visible = showIncompleteWarning;
 		panel.Controls.Add(label3);
 		Panel editor = CreateManualStandardValueEditor(rowIndex, width);
-		editor.SetBounds(0, 30, width, panelHeight - 30);
+		editor.SetBounds(0, showIncompleteWarning ? 70 : 30, width, panelHeight - (showIncompleteWarning ? 70 : 30));
 		panel.Controls.Add(editor);
 		return panel;
 	}
@@ -340,7 +352,7 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 	private static int CalculateStandardValuePanelHeight(MeasurementRule rule)
 	{
 		int count = Math.Max(1, rule?.ManualStandardValues?.Count ?? 0);
-		return 80 + (count - 1) * 28;
+		return (count > 1 ? 120 : 80) + (count - 1) * 28;
 	}
 
 	private Panel CreateManualStandardValueEditor(int rowIndex, int width)
@@ -545,7 +557,7 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		ContextMenuStrip menu = new ContextMenuStrip();
 		ToolStripMenuItem useSelectionItem = new ToolStripMenuItem("设为当前选区");
 		ToolStripMenuItem clearItem = new ToolStripMenuItem("清除区域");
-		ToolStripMenuItem copyPreviousItem = new ToolStripMenuItem("复制上一项结构");
+		ToolStripMenuItem copyPreviousItem = new ToolStripMenuItem("复制同名项结构");
 
 		useSelectionItem.Click += delegate
 		{
@@ -562,9 +574,10 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		};
 		copyPreviousItem.Click += delegate
 		{
-			CopyPreviousItemStructure(rowIndex);
+			CopySameNameItemStructure(rowIndex);
 		};
-		copyPreviousItem.Enabled = rowIndex > 0;
+		copyPreviousItem.Enabled = FindNearestSameNameMapping(rowIndex) != null &&
+			_currentMappings[rowIndex]?.SectionRange != null;
 
 		menu.Items.Add(useSelectionItem);
 		menu.Items.Add(clearItem);

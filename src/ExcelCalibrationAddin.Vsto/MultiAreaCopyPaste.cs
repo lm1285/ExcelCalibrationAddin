@@ -85,13 +85,37 @@ namespace ExcelCalibrationAddin.Vsto
                     StartRow = area.Row,
                     StartColumn = area.Column,
                     RowCount = area.Rows.Count,
-                    ColumnCount = area.Columns.Count
+                    ColumnCount = area.Columns.Count,
+                    Formulas = CaptureFormulaMatrix(area)
                 });
             }
 
             var template = MultiAreaPositionTemplate.Create(name, areas);
+            template.SourceWorkbookName = Application.ActiveWorkbook.Name;
+            template.SourceSheetName = Application.ActiveSheet.Name;
+            template.SourceAnchorRow = areas.Min(item => item.StartRow);
+            template.SourceAnchorColumn = areas.Min(item => item.StartColumn);
             template.Validate();
             return template;
+        }
+
+        private static List<List<string>> CaptureFormulaMatrix(Excel.Range area)
+        {
+            var formulas = new List<List<string>>();
+            for (var row = 1; row <= area.Rows.Count; row++)
+            {
+                var formulaRow = new List<string>();
+                for (var column = 1; column <= area.Columns.Count; column++)
+                {
+                    Excel.Range cell = area.Cells[row, column] as Excel.Range;
+                    var hasFormula = false;
+                    try { hasFormula = cell != null && Convert.ToBoolean(cell.HasFormula); }
+                    catch { hasFormula = false; }
+                    formulaRow.Add(hasFormula ? Convert.ToString(cell.FormulaR1C1) ?? string.Empty : string.Empty);
+                }
+                formulas.Add(formulaRow);
+            }
+            return formulas;
         }
 
         private string RunSavedTemplate(MultiAreaPositionTemplate template)
@@ -105,6 +129,9 @@ namespace ExcelCalibrationAddin.Vsto
             var selection = Application?.Selection as Excel.Range;
             var targetSheet = Application?.ActiveSheet as Excel.Worksheet;
             if (selection == null || targetSheet == null) throw new InvalidOperationException("请先在当前工作 Excel 中选择待复制粘贴的区域。");
+
+            useTemplateAnchor = useTemplateAnchor ||
+                (selection.Areas.Count == 1 && template.Areas.Count != 1);
 
             template.Validate();
             var ranges = new List<Excel.Range>();
@@ -123,14 +150,63 @@ namespace ExcelCalibrationAddin.Vsto
                 foreach (Excel.Range area in selection.Areas) ranges.Add(area);
             }
 
-            var areaCount = 0;
-            foreach (var area in ranges)
+            ranges = ranges.OrderBy(area => area.Row).ThenBy(area => area.Column).ToList();
+            if (ranges.Count != template.Areas.Count || ranges.Where((area, index) =>
+                area.Rows.Count != template.Areas[index].RowCount ||
+                area.Columns.Count != template.Areas[index].ColumnCount).Any())
             {
-                var values = area.Value2;
-                area.Value2 = values;
-                areaCount++;
+                throw new InvalidOperationException("当前选区的区域数量或尺寸与模板不一致。");
             }
-            return $"匹配成功，已将当前选中的 {areaCount} 个区域转换为值。";
+
+            var snapshots = ranges.Select(area => new MultiAreaTargetSnapshot
+            {
+                Range = area,
+                FormulaR1C1 = area.FormulaR1C1
+            }).ToList();
+            try
+            {
+                for (var areaIndex = 0; areaIndex < ranges.Count; areaIndex++)
+                {
+                    var formulas = template.Areas[areaIndex].Formulas;
+                    if (formulas == null || formulas.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    for (var row = 0; row < formulas.Count; row++)
+                    {
+                        for (var column = 0; column < formulas[row].Count; column++)
+                        {
+                            if (!string.IsNullOrWhiteSpace(formulas[row][column]))
+                            {
+                                ((Excel.Range)ranges[areaIndex].Cells[row + 1, column + 1]).FormulaR1C1 = formulas[row][column];
+                            }
+                        }
+                    }
+                }
+
+                targetSheet.Calculate();
+                foreach (var area in ranges)
+                {
+                    var values = area.Value2;
+                    area.Value2 = values;
+                }
+            }
+            catch
+            {
+                foreach (var snapshot in snapshots)
+                {
+                    snapshot.Range.FormulaR1C1 = snapshot.FormulaR1C1;
+                }
+                throw;
+            }
+            return $"匹配成功，已重建公式并将 {ranges.Count} 个区域转换为值。";
+        }
+
+        private sealed class MultiAreaTargetSnapshot
+        {
+            public Excel.Range Range { get; set; }
+            public object FormulaR1C1 { get; set; }
         }
 
         private static MultiAreaPositionTemplate MatchTemplateForActiveSelection(IReadOnlyList<MultiAreaPositionTemplate> templates)
@@ -201,7 +277,7 @@ namespace ExcelCalibrationAddin.Vsto
             }
             _state.AutoEllipsis = true; _state.ForeColor = System.Drawing.Color.DimGray; _state.Dock = DockStyle.Fill;
             layout.Controls.Add(_state, 0, 2); layout.SetColumnSpan(_state, 2);
-            var hint = new Label { Text = _runMode ? "匹配当前选区后直接将选中区域转换为值。" : "模板只保存区域位置和尺寸，不保存单元格值。", AutoSize = true, ForeColor = System.Drawing.Color.DimGray, Dock = DockStyle.Fill };
+            var hint = new Label { Text = _runMode ? "按目标锚点重建相对公式，重算后转换为值。" : "模板保存区域位置、尺寸和公式结构，不保存计算结果。", AutoSize = true, ForeColor = System.Drawing.Color.DimGray, Dock = DockStyle.Fill };
             layout.Controls.Add(hint, 0, 3); layout.SetColumnSpan(hint, 2);
         }
 

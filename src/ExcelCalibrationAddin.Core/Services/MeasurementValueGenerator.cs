@@ -54,6 +54,7 @@ namespace ExcelCalibrationAddin.Core.Services
                 })
                 .ToList();
             if (input.ValueCount > 1 &&
+                (input.ValueCount > 3 || input.RequireVisibleVariation) &&
                 rawValues
                 .Select((value, index) => Math.Round(value, ResolveDecimalPlaces(input, index)))
                 .Select(value => Math.Round(value, 15))

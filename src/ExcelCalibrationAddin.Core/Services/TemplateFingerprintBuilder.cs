@@ -72,8 +72,7 @@ namespace ExcelCalibrationAddin.Core.Services
                 {
                     (cell.Row - originRow + 1).ToString(),
                     (cell.Column - originColumn + 1).ToString(),
-                    string.IsNullOrWhiteSpace(cell.Formula) ? NormalizeStructuralText(cell.Text) : string.Empty,
-                    NormalizeNumberFormat(cell.NumberFormat),
+                    ResolveStructuralCellKind(cell),
                     NormalizeMergeRange(cell.MergeRange, originRow, originColumn)
                 }))
                 .Where(value => value.Split('~').Skip(2).Any(item => !string.IsNullOrWhiteSpace(item)))
@@ -98,13 +97,21 @@ namespace ExcelCalibrationAddin.Core.Services
             var originColumn = GetOriginColumn(sheet);
             return string.Join(",", (sheet?.Headers ?? new List<HeaderPath>())
                 .Where(header => header != null)
-                .Select(header => new
-                {
-                    RelativeColumn = header.Column - originColumn + 1,
-                    Text = NormalizeStructuralHeader(header.FullText)
-                })
-                .Where(header => !string.IsNullOrWhiteSpace(header.Text))
-                .Select(header => $"{header.RelativeColumn}:{header.Text}"));
+                .Select(header => $"{header.Column - originColumn + 1}:{(header.Levels ?? new List<string>()).Count}"));
+        }
+
+        private static string ResolveStructuralCellKind(CellMeta cell)
+        {
+            if (!string.IsNullOrWhiteSpace(cell?.Formula))
+            {
+                return "F";
+            }
+
+            return !string.IsNullOrWhiteSpace(cell?.Text) ||
+                !string.IsNullOrWhiteSpace(cell?.DisplayText) ||
+                !string.IsNullOrWhiteSpace(cell?.RawValueText)
+                ? "V"
+                : string.Empty;
         }
 
         private static int GetOriginRow(SheetSnapshot sheet)
@@ -137,8 +144,9 @@ namespace ExcelCalibrationAddin.Core.Services
             return cell != null &&
                 (cell.MergeRange != null ||
                  !string.IsNullOrWhiteSpace(cell.Formula) ||
-                 !string.IsNullOrWhiteSpace(NormalizeStructuralText(cell.Text)) ||
-                 !string.IsNullOrWhiteSpace(NormalizeNumberFormat(cell.NumberFormat)));
+                 !string.IsNullOrWhiteSpace(cell.Text) ||
+                 !string.IsNullOrWhiteSpace(cell.DisplayText) ||
+                 !string.IsNullOrWhiteSpace(cell.RawValueText));
         }
 
         private static string NormalizeMergeRange(CellRange range, int originRow, int originColumn)

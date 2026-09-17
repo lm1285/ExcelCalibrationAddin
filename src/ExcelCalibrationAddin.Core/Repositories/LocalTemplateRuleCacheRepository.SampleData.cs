@@ -79,6 +79,37 @@ VALUES(@item,@index,@row,@column,@standard,@values,@decimals);";
             return result;
         }
 
+        public SampleDataVersion GetSampleDataVersion(long versionId)
+        {
+            SampleDataVersion version = null;
+            using (var connection = OpenConnection())
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT Id,TemplateFingerprint,CreatedAt,Remark,SyncStatus FROM SampleDataVersion WHERE Id=@id LIMIT 1;";
+                command.Parameters.AddWithValue("@id", versionId);
+                using (var reader = command.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        version = new SampleDataVersion
+                        {
+                            Id = Convert.ToInt64(reader[0]),
+                            TemplateFingerprint = Convert.ToString(reader[1]),
+                            CreatedAt = ParseDate(reader[2]),
+                            Remark = Convert.ToString(reader[3]),
+                            SyncStatus = Convert.ToInt32(reader[4])
+                        };
+                    }
+                }
+            }
+
+            if (version != null)
+            {
+                LoadSampleItems(version);
+            }
+            return version;
+        }
+
         public bool DeleteSampleDataVersion(long versionId)
         {
             using (var connection = OpenConnection()) using (var command = connection.CreateCommand())

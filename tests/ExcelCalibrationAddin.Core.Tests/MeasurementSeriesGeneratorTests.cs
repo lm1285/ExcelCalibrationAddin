@@ -81,60 +81,41 @@ namespace ExcelCalibrationAddin.Core.Tests
         }
 
         [DataTestMethod]
-        [DataRow(180d, 5d)]
-        [DataRow(180.01d, 7d)]
-        public void ResponseTimeValuesUseFixedMaximumSpread(double mpe, double expectedMaximumSpread)
+        [DataRow(TechnicalRequirementOperator.LessThan, 25d, 35d)]
+        [DataRow(TechnicalRequirementOperator.LessThanOrEqual, 25d, 35d)]
+        [DataRow(TechnicalRequirementOperator.GreaterThan, 120d, 140d)]
+        [DataRow(TechnicalRequirementOperator.GreaterThanOrEqual, 120d, 140d)]
+        public void ResponseTimeValuesFollowRequirementOperator(
+            TechnicalRequirementOperator requirementOperator,
+            double expectedMinimum,
+            double expectedMaximum)
         {
             var generator = new MeasurementSeriesGenerator(new Random(31));
-            var manualStandardValue = mpe + 20d;
 
             var values = generator.GenerateResponseTimeValues(
-                standardValue: manualStandardValue,
-                mpe: mpe,
+                requirement: 100d,
+                requirementOperator: requirementOperator,
                 valueCount: 50,
                 decimalPlaces: 2,
                 configuration: new GenerationConfiguration { DefaultDistribution = "Uniform" });
 
             Assert.AreEqual(50, values.Count);
-            Assert.IsTrue(values.All(value => Math.Abs(value - manualStandardValue) <= expectedMaximumSpread / 2d + 1e-12));
-            Assert.IsTrue(values.Max() - values.Min() <= expectedMaximumSpread + 1e-12);
+            Assert.IsTrue(values.All(value => value >= expectedMinimum && value <= expectedMaximum));
         }
 
         [TestMethod]
-        public void ResponseTimeValuesStayInsideManualStandardRange()
+        public void ResponseTimeValuesPreserveDecimalPlaces()
         {
             var generator = new MeasurementSeriesGenerator(new Random(32));
 
             var values = generator.GenerateResponseTimeValues(
-                standardValue: 40,
-                mpe: 60,
+                requirement: 60,
+                requirementOperator: TechnicalRequirementOperator.LessThanOrEqual,
                 valueCount: 50,
                 decimalPlaces: 2,
-                configuration: new GenerationConfiguration { DefaultDistribution = "Uniform" },
-                measurementLowerBound: 20,
-                measurementUpperBound: 30);
+                configuration: new GenerationConfiguration { DefaultDistribution = "Uniform" });
 
-            Assert.IsTrue(values.All(value => value >= 20 && value <= 30));
-            Assert.IsTrue(values.Max() - values.Min() <= 5d + 1e-12);
-        }
-
-        [TestMethod]
-        public void ResponseTimeValuesUseConfiguredDifferenceControls()
-        {
-            var generator = new MeasurementSeriesGenerator(new Random(33));
-            var configuration = new GenerationConfiguration
-            {
-                DefaultDistribution = "Uniform",
-                ResponseTimeThresholdSeconds = 100,
-                ResponseTimeBelowThresholdMaximumDifferenceSeconds = 2,
-                ResponseTimeAboveThresholdMaximumDifferenceSeconds = 4
-            };
-
-            var belowThreshold = generator.GenerateResponseTimeValues(80, 100, 50, 2, configuration);
-            var aboveThreshold = generator.GenerateResponseTimeValues(120, 120, 50, 2, configuration);
-
-            Assert.IsTrue(belowThreshold.Max() - belowThreshold.Min() <= 2d + 1e-12);
-            Assert.IsTrue(aboveThreshold.Max() - aboveThreshold.Min() <= 4d + 1e-12);
+            Assert.IsTrue(values.All(value => Math.Abs(value - Math.Round(value, 2)) <= 1e-12));
         }
     }
 }

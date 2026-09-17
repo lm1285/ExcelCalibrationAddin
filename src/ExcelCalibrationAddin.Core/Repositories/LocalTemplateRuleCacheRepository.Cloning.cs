@@ -52,6 +52,7 @@ namespace ExcelCalibrationAddin.Core.Repositories
                 NegativeDirectionOnly = rule.NegativeDirectionOnly,
                 GenerationCoefficientOverride = CloneCoefficientOverride(rule.GenerationCoefficientOverride),
                 ErrorFormula = CloneErrorFormula(rule.ErrorFormula),
+                AdditionalJudgementConstraints = CloneJudgementConstraints(rule.AdditionalJudgementConstraints),
                 TemplateDefinition = TemplateDefinitionCloner.Clone(rule.TemplateDefinition)
             };
         }
@@ -137,8 +138,30 @@ namespace ExcelCalibrationAddin.Core.Repositories
                     RangeValueRange = CloneRange(item.RangeValueRange),
                     UncertaintyRange = CloneRange(item.UncertaintyRange),
                     ResultRange = CloneRange(item.ResultRange),
+                    AdditionalJudgementConstraints = CloneJudgementConstraints(item.AdditionalJudgementConstraints),
                     IsComplete = item.IsComplete,
                     StatusMessage = item.StatusMessage
+                })
+                .ToList();
+        }
+
+        private static List<MeasurementJudgementConstraint> CloneJudgementConstraints(
+            IEnumerable<MeasurementJudgementConstraint> constraints)
+        {
+            return (constraints ?? Enumerable.Empty<MeasurementJudgementConstraint>())
+                .Where(item => item != null)
+                .Select(item => new MeasurementJudgementConstraint
+                {
+                    Name = item.Name,
+                    ErrorSource = CloneParameterSource(item.ErrorSource),
+                    MpeSource = CloneParameterSource(item.MpeSource),
+                    ResultSource = CloneParameterSource(item.ResultSource),
+                    ErrorType = item.ErrorType,
+                    FixedMpe = item.FixedMpe,
+                    FixedNegativeTolerance = item.FixedNegativeTolerance,
+                    FixedPositiveTolerance = item.FixedPositiveTolerance,
+                    RequirementOperator = item.RequirementOperator,
+                    ErrorFormula = CloneErrorFormula(item.ErrorFormula)
                 })
                 .ToList();
         }
@@ -185,7 +208,11 @@ namespace ExcelCalibrationAddin.Core.Repositories
                 ResultFormula = info.ResultFormula,
                 Scale = info.Scale,
                 FormulaMultipliesBy100 = info.FormulaMultipliesBy100,
-                FormulaDividesByReferenceRange = info.FormulaDividesByReferenceRange
+                FormulaDividesByReferenceRange = info.FormulaDividesByReferenceRange,
+                DependencyRanges = (info.DependencyRanges ?? new List<CellRange>())
+                    .Select(CloneRange)
+                    .ToList(),
+                UnresolvedDependencies = new List<string>(info.UnresolvedDependencies ?? new List<string>())
             };
         }
     }

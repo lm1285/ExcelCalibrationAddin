@@ -64,12 +64,80 @@ namespace ExcelCalibrationAddin.Core.Tests
             Assert.AreEqual(0, result.WarningMessages.Count);
         }
 
-        [DataTestMethod]
-        [DataRow(180d, 5d)]
-        [DataRow(181d, 7d)]
-        public void ResponseTimeManualStandardValueOverridesMpeGeneration(double mpe, double maximumSpread)
+        [TestMethod]
+        public void GenerationRejectsUnresolvedFormulaDependencies()
         {
-            var manualStandardValue = mpe + 20d;
+            var useCase = new GenerateMeasurementUseCase(
+                configuration => new MeasurementValueGenerator(configuration, new Random(112)),
+                new GenerationConfiguration(),
+                new RecordingWorkbookWriter(),
+                null,
+                null);
+            var rule = Rule("结构化引用项目", 10);
+            rule.ErrorSource = new ParameterSource { Range = Range("D5:D5") };
+            rule.ErrorFormula = new ErrorFormulaInfo
+            {
+                HasFormula = true,
+                Formula = "=Table1[Value]-C5",
+                UnresolvedDependencies = new List<string> { "结构化引用: Table1[Value]" }
+            };
+
+            var exception = Assert.ThrowsException<System.InvalidOperationException>(() =>
+                useCase.PreviewPreResolved(new[] { rule }));
+
+            StringAssert.Contains(exception.Message, "无法安全解析的公式依赖");
+            StringAssert.Contains(exception.Message, "Table1[Value]");
+        }
+
+        [TestMethod]
+        public void SelectedSampleDataProvidesCandidatesBeforeFormulaValidation()
+        {
+            var configuration = new GenerationConfiguration
+            {
+                PositiveErrorMinimumCoefficient = 0.7,
+                PositiveErrorMaximumCoefficient = 0.8,
+                NegativeErrorMinimumCoefficient = 0.7,
+                NegativeErrorMaximumCoefficient = 0.8,
+                AbsoluteErrorMinimumCoefficient = 0.7,
+                AbsoluteErrorMaximumCoefficient = 0.8
+            };
+            var useCase = new GenerateMeasurementUseCase(
+                value => new MeasurementValueGenerator(value, new Random(113)),
+                configuration,
+                new RecordingWorkbookWriter(),
+                null,
+                null);
+            useCase.SetSampleDataPoints(new[]
+            {
+                new SampleDataPoint
+                {
+                    CalibrationItemName = "样本项目",
+                    StandardValue = 10,
+                    DecimalPlaces = 2,
+                    MeasurementValues = new List<double> { 10.36, 10.37, 10.38 }
+                }
+            });
+            var rule = Rule("样本项目", 10);
+            rule.TargetRange = Range("C5:E5");
+            rule.WritableCells = Enumerable.Range(3, 3)
+                .Select(column => new CellAddress { Row = 5, Column = column })
+                .ToList();
+
+            var preview = useCase.PreviewPreResolved(new[] { rule }).Single();
+
+            Assert.IsTrue(preview.RawValues.All(value => value >= 10.35 && value <= 10.39));
+        }
+
+        [DataTestMethod]
+        [DataRow(TechnicalRequirementOperator.LessThan, 45d, 63d)]
+        [DataRow(TechnicalRequirementOperator.LessThanOrEqual, 45d, 63d)]
+        [DataRow(TechnicalRequirementOperator.GreaterThan, 216d, 252d)]
+        [DataRow(TechnicalRequirementOperator.GreaterThanOrEqual, 216d, 252d)]
+        public void SecondsRequirementUsesConfirmedRangeRegardlessOfProjectName(
+            TechnicalRequirementOperator requirementOperator,
+            double expectedMinimum,
+            double expectedMaximum)
+        {
             var useCase = new GenerateMeasurementUseCase(
                 configuration => new MeasurementValueGenerator(configuration, new Random(41)),
                 new GenerationConfiguration { DefaultDistribution = "Uniform" },
@@ -78,16 +146,12 @@ namespace ExcelCalibrationAddin.Core.Tests
                 null);
             var rule = new MeasurementRule
             {
-                FieldName = "响应时间",
+                FieldName = "动作时间",
                 TargetRange = Range("C5:H5"),
-                FixedStandardValue = manualStandardValue,
-                ManualStandardValues = new List<ManualStandardValue>
-                {
-                    new ManualStandardValue { PointIndex = 1, Value = manualStandardValue }
-                },
-                FixedMpe = mpe,
-                RequirementOperator = TechnicalRequirementOperator.LessThanOrEqual,
-                FormatRule = new FormatRule { DecimalPlaces = 2 },
+                FixedMpe = 180d,
+                RequirementOperator = requirementOperator,
+                MpeSource = new ParameterSource { ValuePattern = "mpe:absolute:scale=1:unit=s" },
+                FormatRule = new FormatRule { DecimalPlaces = 2, UnitSuffix = "s" },
                 WritableCells = Enumerable.Range(3, 6)
                     .Select(column => new CellAddress { Row = 5, Column = column })
                     .ToList()
@@ -95,12 +159,117 @@ namespace ExcelCalibrationAddin.Core.Tests
 
             var preview = useCase.PreviewPreResolved(new[] { rule }).Single();
 
-            Assert.IsTrue(preview.RawValues.All(value => Math.Abs(value - manualStandardValue) <= maximumSpread / 2d + 1e-12));
-            Assert.IsTrue(preview.RawValues.Max() - preview.RawValues.Min() <= maximumSpread + 1e-12);
+            Assert.IsTrue(preview.RawValues.All(value => value >= expectedMinimum && value <= expectedMaximum));
         }
 
         [TestMethod]
-        public void PlusMinusResponseTimeKeepsOriginalUpperLimitGeneration()
+        public void TimeKeywordInfersLessOrEqualFromResultFormula()
+        {
+            var useCase = new GenerateMeasurementUseCase(
+                configuration => new MeasurementValueGenerator(configuration, new Random(46)),
+                new GenerationConfiguration { DefaultDistribution = "Uniform" },
+                new RecordingWorkbookWriter(),
+                null,
+                null);
+            var rule = new MeasurementRule
+            {
+                FieldName = "2.4、响应时间",
+                TargetRange = new CellRange { SheetName = "Sheet1", StartRow = 20, EndRow = 20, StartColumn = 5, EndColumn = 16 },
+                FixedMpe = 60,
+                RequirementOperator = TechnicalRequirementOperator.None,
+                AverageSource = new ParameterSource { Range = new CellRange { SheetName = "Sheet1", StartRow = 20, EndRow = 20, StartColumn = 17, EndColumn = 17 } },
+                ErrorSource = new ParameterSource { Range = new CellRange { SheetName = "Sheet1", StartRow = 20, EndRow = 20, StartColumn = 17, EndColumn = 17 } },
+                MpeSource = new ParameterSource { Range = new CellRange { SheetName = "Sheet1", StartRow = 20, EndRow = 20, StartColumn = 23, EndColumn = 23 } },
+                ResultSource = new ParameterSource { Range = new CellRange { SheetName = "Sheet1", StartRow = 20, EndRow = 20, StartColumn = 30, EndColumn = 30 } },
+                FormatRule = new FormatRule { DecimalPlaces = 2 },
+                WritableCells = new List<CellAddress>
+                {
+                    new CellAddress { Row = 20, Column = 5 },
+                    new CellAddress { Row = 20, Column = 9 },
+                    new CellAddress { Row = 20, Column = 13 }
+                },
+                ErrorFormula = new ErrorFormulaInfo
+                {
+                    HasFormula = true,
+                    Formula = "=AVERAGE(E20:P20)",
+                    ResultFormula = "=IF(W20=\"/\",\"P\",IF(Q20<=W20,\"P\",\"F\"))",
+                    ResultFormulaResolved = true
+                },
+                TemplateDefinition = new TemplateFieldDefinition
+                {
+                    ProjectName = "2.4、响应时间",
+                    Regions = new List<TemplateRegionDefinition>
+                    {
+                        new TemplateRegionDefinition
+                        {
+                            Role = TemplateRegionRole.TechnicalRequirement,
+                            Unit = "s",
+                            Units = new List<string> { "s" }
+                        }
+                    }
+                }
+            };
+
+            Assert.IsTrue(ExcelCalibrationAddin.Host.Generation.GenerationRuleValidator.IsUpperLimitRule(rule));
+            var preview = useCase.PreviewPreResolved(new[] { rule }).Single();
+            Assert.IsTrue(preview.RawValues.All(value => value >= 15 && value <= 21));
+        }
+
+        [TestMethod]
+        public void TimeKeywordGreaterThanUsesHighRequirementRange()
+        {
+            var useCase = new GenerateMeasurementUseCase(
+                configuration => new MeasurementValueGenerator(configuration, new Random(47)),
+                new GenerationConfiguration { DefaultDistribution = "Uniform" },
+                new RecordingWorkbookWriter(),
+                null,
+                null);
+            var rule = new MeasurementRule
+            {
+                FieldName = "响应时间",
+                TargetRange = Range("C5:H5"),
+                FixedMpe = 100,
+                RequirementOperator = TechnicalRequirementOperator.GreaterThan,
+                MpeSource = new ParameterSource { ValuePattern = "mpe:absolute:scale=1:op=greaterthan:unit=s" },
+                FormatRule = new FormatRule { DecimalPlaces = 2, UnitSuffix = "s" },
+                WritableCells = Enumerable.Range(3, 6)
+                    .Select(column => new CellAddress { Row = 5, Column = column })
+                    .ToList()
+            };
+
+            var preview = useCase.PreviewPreResolved(new[] { rule }).Single();
+            Assert.IsTrue(preview.RawValues.All(value => value >= 120 && value <= 140));
+        }
+
+        [TestMethod]
+        public void SecondsRequirementWithoutTimeKeywordDoesNotUseUpperLimitPath()
+        {
+            var useCase = new GenerateMeasurementUseCase(
+                configuration => new MeasurementValueGenerator(configuration, new Random(48)),
+                new GenerationConfiguration { DefaultDistribution = "Uniform" },
+                new RecordingWorkbookWriter(),
+                null,
+                null);
+            var rule = new MeasurementRule
+            {
+                FieldName = "示值误差",
+                TargetRange = Range("C5:C5"),
+                FixedStandardValue = 10,
+                FixedMpe = 180,
+                RequirementOperator = TechnicalRequirementOperator.LessThanOrEqual,
+                MpeSource = new ParameterSource { ValuePattern = "mpe:absolute:scale=1:unit=s" },
+                FormatRule = new FormatRule { DecimalPlaces = 2, UnitSuffix = "s" },
+                WritableCells = new List<CellAddress> { new CellAddress { Row = 5, Column = 3 } }
+            };
+
+            Assert.IsFalse(ExcelCalibrationAddin.Host.Generation.GenerationRuleValidator.IsUpperLimitRule(rule));
+            var preview = useCase.PreviewPreResolved(new[] { rule }).Single();
+            Assert.AreEqual(1, preview.RawValues.Count);
+            Assert.IsTrue(preview.RawValues[0] >= 10 && preview.RawValues[0] <= 10 + 180);
+        }
+
+        [TestMethod]
+        public void PlusMinusResponseTimeDoesNotUseSpecialResponseTimePath()
         {
             var useCase = new GenerateMeasurementUseCase(
                 configuration => new MeasurementValueGenerator(configuration, new Random(42)),
@@ -119,8 +288,9 @@ namespace ExcelCalibrationAddin.Core.Tests
                 },
                 FixedMpe = 180,
                 RequirementOperator = TechnicalRequirementOperator.None,
-                MpeSource = new ParameterSource { ValuePattern = "mpe:absolute:scale=1:op=plusminus" },
-                FormatRule = new FormatRule { DecimalPlaces = 2 },
+                ErrorSource = new ParameterSource { Range = Range("D5:D5") },
+                MpeSource = new ParameterSource { ValuePattern = "mpe:absolute:scale=1:op=plusminus:unit=s" },
+                FormatRule = new FormatRule { DecimalPlaces = 2, UnitSuffix = "s" },
                 WritableCells = Enumerable.Range(3, 3)
                     .Select(column => new CellAddress { Row = 5, Column = column })
                     .ToList()
@@ -128,11 +298,12 @@ namespace ExcelCalibrationAddin.Core.Tests
 
             var preview = useCase.PreviewPreResolved(new[] { rule }).Single();
 
-            Assert.IsTrue(preview.RawValues.All(value => value >= 36 && value <= 144));
+            Assert.IsFalse(ExcelCalibrationAddin.Host.Generation.GenerationRuleValidator.IsUpperLimitRule(rule));
+            Assert.AreEqual(3, preview.RawValues.Count);
         }
 
         [TestMethod]
-        public void ResponseTimeWithoutStandardStillUsesFixedMaximumSpread()
+        public void ResponseTimeWithoutSecondsUnitDoesNotUseSpecialResponseTimePath()
         {
             var useCase = new GenerateMeasurementUseCase(
                 configuration => new MeasurementValueGenerator(configuration, new Random(43)),
@@ -145,8 +316,10 @@ namespace ExcelCalibrationAddin.Core.Tests
                 FieldName = "响应时间",
                 TargetRange = Range("C5:H5"),
                 FixedMpe = 180,
+                FixedStandardValue = 100,
+                ErrorSource = new ParameterSource { Range = Range("D5:D5") },
                 RequirementOperator = TechnicalRequirementOperator.LessThanOrEqual,
-                FormatRule = new FormatRule { DecimalPlaces = 2 },
+                FormatRule = new FormatRule { DecimalPlaces = 2, UnitSuffix = "ms" },
                 WritableCells = Enumerable.Range(3, 6)
                     .Select(column => new CellAddress { Row = 5, Column = column })
                     .ToList()
@@ -154,11 +327,12 @@ namespace ExcelCalibrationAddin.Core.Tests
 
             var preview = useCase.PreviewPreResolved(new[] { rule }).Single();
 
-            Assert.IsTrue(preview.RawValues.Max() - preview.RawValues.Min() <= 5d + 1e-12);
+            Assert.IsFalse(ExcelCalibrationAddin.Host.Generation.GenerationRuleValidator.IsUpperLimitRule(rule));
+            Assert.AreEqual(6, preview.RawValues.Count);
         }
 
         [TestMethod]
-        public void ResponseTimeManualRangeIsAHardGenerationBoundary()
+        public void ResponseTimeManualRangeDoesNotOverrideRequirementRule()
         {
             var useCase = new GenerateMeasurementUseCase(
                 configuration => new MeasurementValueGenerator(configuration, new Random(44)),
@@ -179,7 +353,8 @@ namespace ExcelCalibrationAddin.Core.Tests
                 MeasurementUpperBound = 30,
                 FixedMpe = 60,
                 RequirementOperator = TechnicalRequirementOperator.LessThanOrEqual,
-                FormatRule = new FormatRule { DecimalPlaces = 2 },
+                MpeSource = new ParameterSource { ValuePattern = "mpe:absolute:scale=1:unit=s" },
+                FormatRule = new FormatRule { DecimalPlaces = 2, UnitSuffix = "s" },
                 WritableCells = Enumerable.Range(3, 3)
                     .Select(column => new CellAddress { Row = 5, Column = column })
                     .ToList()
@@ -187,12 +362,11 @@ namespace ExcelCalibrationAddin.Core.Tests
 
             var preview = useCase.PreviewPreResolved(new[] { rule }).Single();
 
-            Assert.IsTrue(preview.RawValues.All(value => value >= 20 && value <= 30));
-            Assert.IsTrue(preview.RawValues.Max() - preview.RawValues.Min() <= 5d + 1e-12);
+            Assert.IsTrue(preview.RawValues.All(value => value >= 15 && value <= 21));
         }
 
         [TestMethod]
-        public void TwoManualStandardsDefineRangeForSingleResponseTimeRow()
+        public void MultipleManualStandardsDoNotOverrideResponseTimeRequirementRule()
         {
             var useCase = new GenerateMeasurementUseCase(
                 configuration => new MeasurementValueGenerator(configuration, new Random(45)),
@@ -212,7 +386,8 @@ namespace ExcelCalibrationAddin.Core.Tests
                 },
                 FixedMpe = 60,
                 RequirementOperator = TechnicalRequirementOperator.LessThanOrEqual,
-                FormatRule = new FormatRule { DecimalPlaces = 2 },
+                MpeSource = new ParameterSource { ValuePattern = "mpe:absolute:scale=1:unit=s" },
+                FormatRule = new FormatRule { DecimalPlaces = 2, UnitSuffix = "s" },
                 WritableCells = Enumerable.Range(3, 3)
                     .Select(column => new CellAddress { Row = 5, Column = column })
                     .ToList()
@@ -220,8 +395,7 @@ namespace ExcelCalibrationAddin.Core.Tests
 
             var preview = useCase.PreviewPreResolved(new[] { rule }).Single();
 
-            Assert.IsTrue(preview.RawValues.All(value => value >= 20 && value <= 30));
-            Assert.IsTrue(preview.RawValues.Max() - preview.RawValues.Min() <= 5d + 1e-12);
+            Assert.IsTrue(preview.RawValues.All(value => value >= 15 && value <= 21));
         }
 
         [DataTestMethod]

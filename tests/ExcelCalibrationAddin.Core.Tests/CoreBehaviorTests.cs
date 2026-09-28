@@ -25,6 +25,29 @@ namespace ExcelCalibrationAddin.Core.Tests
     public sealed partial class CoreBehaviorTests
     {
         [TestMethod]
+        public void NormalizerClampsExpandedMergedFieldToOriginalSectionBoundary()
+        {
+            var merge = new CellRange { SheetName = "Sheet1", StartRow = 4, EndRow = 7, StartColumn = 5, EndColumn = 5 };
+            var sheet = new SheetSnapshot
+            {
+                Name = "Sheet1",
+                Cells = new List<CellMeta>
+                {
+                    new CellMeta { Row = 4, Column = 5, Text = "±1%", MergeRange = merge }
+                }
+            };
+            var mapping = new TemplateRegionMapping
+            {
+                SectionRange = new CellRange { SheetName = "Sheet1", StartRow = 2, EndRow = 5, StartColumn = 1, EndColumn = 8 },
+                ErrorValueRange = new CellRange { SheetName = "Sheet1", StartRow = 4, EndRow = 4, StartColumn = 5, EndColumn = 5 }
+            };
+
+            TemplateRegionMappingNormalizer.Normalize(sheet, mapping);
+
+            Assert.AreEqual(5, mapping.ErrorValueRange.EndRow);
+        }
+
+        [TestMethod]
         public void AutomaticMatchSkipsUnrelatedWorkbookSheets()
         {
             var candidates = AutomaticMatchSheetSelector.Select(
@@ -507,6 +530,8 @@ namespace ExcelCalibrationAddin.Core.Tests
                 }
             };
 
+            snapshot.Sheets[0].Cells.First(cell => cell.Row == 5 && cell.Column == 4).Formula =
+                "='Hidden Data'!$B$2+[External.xlsx]Sheet1!$C$3+C5+LimitValue";
             new MeasurementRuleStructureAnalyzer().Apply(snapshot, new[] { rule });
 
             Assert.IsTrue(rule.ErrorFormula.DependencyRanges.Any(range =>
@@ -2260,10 +2285,12 @@ namespace ExcelCalibrationAddin.Core.Tests
                         Name = "Sheet1",
                         Cells = new List<CellMeta>
                         {
-                            new CellMeta { Row = 5, Column = 3, NumberFormat = "0.00" },
-                            new CellMeta { Row = 5, Column = 4, NumberFormat = "0.00" },
-                            new CellMeta { Row = 6, Column = 3, NumberFormat = "0.00" },
-                            new CellMeta { Row = 6, Column = 4, NumberFormat = "0.00" }
+                            new CellMeta { Row = 5, Column = 3, NumberFormat = "0.000" },
+                            new CellMeta { Row = 5, Column = 4, NumberFormat = "0.000" },
+                            new CellMeta { Row = 5, Column = 5, NumberFormat = "0.00" },
+                            new CellMeta { Row = 6, Column = 3, NumberFormat = "0.000" },
+                            new CellMeta { Row = 6, Column = 4, NumberFormat = "0.000" },
+                            new CellMeta { Row = 6, Column = 5, NumberFormat = "0.00" }
                         }
                     }
                 }
@@ -2277,7 +2304,9 @@ namespace ExcelCalibrationAddin.Core.Tests
                 PositiveErrorMinimumCoefficient = 0.7,
                 PositiveErrorMaximumCoefficient = 0.9,
                 NegativeErrorMinimumCoefficient = 0.7,
-                NegativeErrorMaximumCoefficient = 0.9
+                NegativeErrorMaximumCoefficient = 0.9,
+                AbsoluteErrorMinimumCoefficient = 0.7,
+                AbsoluteErrorMaximumCoefficient = 0.9
             };
             var useCase = new GenerateMeasurementUseCase(
                 current => new MeasurementValueGenerator(current, new Random(74)),
@@ -2992,6 +3021,7 @@ namespace ExcelCalibrationAddin.Core.Tests
             var repository = CreateRepository();
             var fingerprint = Fingerprint("fp-static-template-definition");
             var rule = Rule("dynamic values", 10);
+            rule.MpeSource = new ParameterSource { Name = "requirement", Range = RangeAt(5, 5) };
             rule.StandardValueSource = new ParameterSource { Name = "standard", Range = RangeAt(5, 1) };
             rule.RangeSource = new ParameterSource { Name = "range", Range = RangeAt(2, 9) };
             rule.FixedReferenceRange = 100;
@@ -3033,7 +3063,7 @@ namespace ExcelCalibrationAddin.Core.Tests
             Assert.IsFalse(cachedRule.FixedStandardValue.HasValue);
             Assert.IsFalse(cachedRule.FixedReferenceRange.HasValue);
             Assert.IsNotNull(cachedRule.TemplateDefinition);
-            Assert.AreEqual("ppm", cachedRule.TemplateDefinition.Regions.Single(region =>
+            Assert.AreEqual(string.Empty, cachedRule.TemplateDefinition.Regions.Single(region =>
                 region.Role == TemplateRegionRole.RangeValue).Unit);
         }
 
@@ -3043,6 +3073,7 @@ namespace ExcelCalibrationAddin.Core.Tests
             var repository = CreateRepository();
             var fingerprint = Fingerprint("fp-manual-standard-local");
             var rule = Rule("manual standard", 100);
+            rule.MpeSource = new ParameterSource { Name = "requirement", Range = RangeAt(5, 5) };
             rule.StandardValueSource = new ParameterSource { Name = "standard", Range = RangeAt(5, 1) };
             rule.ManualStandardValues = new List<ManualStandardValue>
             {
@@ -3227,7 +3258,9 @@ namespace ExcelCalibrationAddin.Core.Tests
                 "http://localhost:3002/api/templates");
             var service = new TemplateSaveService(client, repository);
 
-            var result = service.Save("Incomplete", fingerprint, new[] { Rule("rule", 10) }, null, false);
+            var incompleteRule = Rule("rule", 10);
+            incompleteRule.MpeSource = new ParameterSource { Name = "requirement", Range = RangeAt(5, 5) };
+            var result = service.Save("Incomplete", fingerprint, new[] { incompleteRule }, null, false);
 
             Assert.IsFalse(result.SavedToRemote);
             Assert.AreEqual(TemplateSyncStatus.PendingUpload, result.LocalSyncStatus);
@@ -3595,6 +3628,46 @@ namespace ExcelCalibrationAddin.Core.Tests
                 {
                     HasFormula = true,
                     Scale = ErrorFormulaScale.Absolute
+                }
+            };
+
+            new FormulaResultVerifier().Verify(snapshot, new[] { rule });
+        }
+
+        [TestMethod]
+        public void FormulaVerifierIgnoresFormulaRowsOutsideGeneratedMappings()
+        {
+            var snapshot = new WorkbookSnapshot
+            {
+                Sheets = new List<SheetSnapshot>
+                {
+                    new SheetSnapshot
+                    {
+                        Name = "Sheet1",
+                        Cells = new List<CellMeta>
+                        {
+                            new CellMeta { Row = 6, Column = 4, Text = "100" },
+                            new CellMeta { Row = 6, Column = 16, Text = "101", Formula = "=P6-D6", RawValueText = "1" },
+                            // This is a stale formula in the broad visual error block.
+                            new CellMeta { Row = 7, Column = 16, Text = "-93.3", Formula = "=P7-D7", RawValueText = "-93.3" }
+                        }
+                    }
+                }
+            };
+            var rule = new MeasurementRule
+            {
+                FieldName = "示值误差",
+                ErrorSource = new ParameterSource { Range = Range("P6:P7") },
+                FixedMpe = 2,
+                ErrorFormula = new ErrorFormulaInfo { HasFormula = true, Formula = "=P6-D6" },
+                WritableCells = new List<CellAddress> { new CellAddress { Row = 6, Column = 7 } },
+                RowMappings = new List<MeasurementRowMapping>
+                {
+                    new MeasurementRowMapping
+                    {
+                        Row = 6,
+                        MeasurementCells = new List<CellAddress> { new CellAddress { Row = 6, Column = 7 } }
+                    }
                 }
             };
 
@@ -4421,6 +4494,7 @@ namespace ExcelCalibrationAddin.Core.Tests
                 },
                 FixedStandardValue = 10,
                 FixedMpe = 1,
+                ErrorSource = new ParameterSource { Range = new CellRange { SheetName = "Sheet1", StartRow = row, EndRow = row, StartColumn = 5, EndColumn = 5 } },
                 FormatRule = new FormatRule { DecimalPlaces = 3, UnitSuffix = "V" }
             };
         }

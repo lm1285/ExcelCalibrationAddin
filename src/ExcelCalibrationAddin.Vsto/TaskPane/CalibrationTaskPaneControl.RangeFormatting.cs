@@ -15,6 +15,22 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
     {
 	private static CellRange ResolveRangeForHighlight(TemplateRegionMapping mapping, string columnName)
 	{
+		int additionalIndex;
+		string additionalKind;
+		if (TryParseAdditionalField(columnName, out additionalIndex, out additionalKind))
+		{
+			var constraint = mapping?.AdditionalJudgementConstraints != null &&
+				additionalIndex >= 0 && additionalIndex < mapping.AdditionalJudgementConstraints.Count
+				? mapping.AdditionalJudgementConstraints[additionalIndex]
+				: null;
+			if (constraint != null)
+			{
+				if (additionalKind == "Error") return TaskPaneModelCloner.CloneRange(constraint.ErrorSource?.Range);
+				if (additionalKind == "Mpe") return TaskPaneModelCloner.CloneRange(constraint.MpeSource?.Range);
+				return TaskPaneModelCloner.CloneRange(constraint.ResultSource?.Range);
+			}
+		}
+
 		switch (columnName)
 		{
 		case "Section":
@@ -46,6 +62,13 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 
 	private static int ColumnIndexFromName(string columnName)
 	{
+		int additionalIndex;
+		string additionalKind;
+		if (TryParseAdditionalField(columnName, out additionalIndex, out additionalKind))
+		{
+			return 11 + additionalIndex * 3 + (additionalKind == "Error" ? 0 : additionalKind == "Mpe" ? 1 : 2);
+		}
+
 		switch (columnName)
 		{
 		case "Project":
@@ -77,6 +100,15 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 
 	private static string FieldLabelFromColumnName(string columnName)
 	{
+		int additionalIndex;
+		string additionalKind;
+		if (TryParseAdditionalField(columnName, out additionalIndex, out additionalKind))
+		{
+			var ordinal = (additionalIndex + 2).ToString(CultureInfo.InvariantCulture);
+			return additionalKind == "Error" ? "误差" + ordinal :
+				(additionalKind == "Mpe" ? "MPE" + ordinal : "结论" + ordinal);
+		}
+
 		switch (columnName)
 		{
 		case "Section":
@@ -106,6 +138,16 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 
 	private static string ColumnNameFromIndex(int columnIndex)
 	{
+		if (columnIndex >= 11)
+		{
+			int relative = columnIndex - 11;
+			int additionalIndex = relative / 3;
+			int kind = relative % 3;
+			return kind == 0 ? "AdditionalError" + additionalIndex.ToString(CultureInfo.InvariantCulture) :
+				(kind == 1 ? "AdditionalMpe" + additionalIndex.ToString(CultureInfo.InvariantCulture) :
+				"AdditionalResult" + additionalIndex.ToString(CultureInfo.InvariantCulture));
+		}
+
 		switch (columnIndex)
 		{
 		case 0:
@@ -133,6 +175,40 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		default:
 			return string.Empty;
 		}
+	}
+
+	private static bool TryParseAdditionalField(string columnName, out int index, out string kind)
+	{
+		index = -1;
+		kind = string.Empty;
+		if (string.IsNullOrWhiteSpace(columnName)) return false;
+
+		string prefix;
+		if (columnName.StartsWith("AdditionalError", StringComparison.Ordinal))
+		{
+			prefix = "AdditionalError";
+			kind = "Error";
+		}
+		else if (columnName.StartsWith("AdditionalMpe", StringComparison.Ordinal))
+		{
+			prefix = "AdditionalMpe";
+			kind = "Mpe";
+		}
+		else if (columnName.StartsWith("AdditionalResult", StringComparison.Ordinal))
+		{
+			prefix = "AdditionalResult";
+			kind = "Result";
+		}
+		else
+		{
+			return false;
+		}
+
+		return int.TryParse(
+			columnName.Substring(prefix.Length),
+			NumberStyles.None,
+			CultureInfo.InvariantCulture,
+			out index) && index >= 0;
 	}
 
 	private static ExcelCalibrationAddin.Core.Models.GenerationConfiguration CloneGenerationConfiguration(ExcelCalibrationAddin.Core.Models.GenerationConfiguration configuration)

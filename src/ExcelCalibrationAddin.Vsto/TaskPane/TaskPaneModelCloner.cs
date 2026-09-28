@@ -24,7 +24,13 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
                     RangeValueRange = CloneRange(item.RangeValueRange),
                     ResultRange = CloneRange(item.ResultRange),
                     AdditionalJudgementConstraints = MeasurementRuleCloner.CloneJudgementConstraints(item.AdditionalJudgementConstraints),
-                    Notes = item.Notes
+                    Notes = item.Notes,
+                    BlockOrdinal = item.BlockOrdinal,
+                    BlockRuleOrdinal = item.BlockRuleOrdinal,
+                    BlockRange = CloneRange(item.BlockRange),
+                    BlockStructureSignature = item.BlockStructureSignature,
+                    BlockItemStructureSignature = item.BlockItemStructureSignature,
+                    RecognitionError = item.RecognitionError
                 })
                 .ToList();
         }

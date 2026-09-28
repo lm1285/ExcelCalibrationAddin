@@ -65,6 +65,53 @@ namespace ExcelCalibrationAddin.Core.Tests
         }
 
         [TestMethod]
+        public void AdditionalMaxMinusMinConstraintLimitsGeneratedMeasurementSpread()
+        {
+            var useCase = new GenerateMeasurementUseCase(
+                configuration => new MeasurementValueGenerator(configuration, new Random(411)),
+                new GenerationConfiguration(),
+                new RecordingWorkbookWriter(),
+                null,
+                null);
+            var rule = new MeasurementRule
+            {
+                FieldName = "波长示值误差与重复性的校准",
+                TargetRange = Range("G6:O6"),
+                FixedStandardValue = 241.3,
+                FixedMpe = 2,
+                ErrorSource = new ParameterSource { Range = Range("S6:U6") },
+                ErrorFormula = new ErrorFormulaInfo { HasFormula = true, Formula = "=P6-D6" },
+                FormatRule = new FormatRule { DecimalPlaces = 1 },
+                WritableCells = new[] { 7, 10, 13 }
+                    .Select(column => new CellAddress { Row = 6, Column = column })
+                    .ToList(),
+                AdditionalJudgementConstraints = new List<MeasurementJudgementConstraint>
+                {
+                    new MeasurementJudgementConstraint
+                    {
+                        Name = "重复性",
+                        ErrorSource = new ParameterSource { Range = Range("Y6:AA6") },
+                        FixedMpe = 1,
+                        ErrorType = ErrorType.Absolute,
+                        ErrorFormula = new ErrorFormulaInfo
+                        {
+                            HasFormula = true,
+                            Formula = "=MAX(G6:O6)-MIN(G6:O6)",
+                            Scale = ErrorFormulaScale.Absolute
+                        }
+                    }
+                }
+            };
+
+            var preview = useCase.PreviewPreResolved(new[] { rule }).Single();
+
+            Assert.AreEqual(3, preview.RawValues.Count);
+            Assert.IsTrue(preview.RawValues.Max() - preview.RawValues.Min() <= 1.0000000001,
+                "Generated measurements must satisfy the MAX-MIN repeatability bound. Values=" +
+                string.Join(",", preview.RawValues));
+        }
+
+        [TestMethod]
         public void GenerationRejectsUnresolvedFormulaDependencies()
         {
             var useCase = new GenerateMeasurementUseCase(
@@ -105,7 +152,19 @@ namespace ExcelCalibrationAddin.Core.Tests
                 value => new MeasurementValueGenerator(value, new Random(113)),
                 configuration,
                 new RecordingWorkbookWriter(),
-                null,
+                new StaticSnapshotProvider(new WorkbookSnapshot
+                {
+                    Sheets = new List<SheetSnapshot>
+                    {
+                        new SheetSnapshot
+                        {
+                            Name = "Sheet1",
+                            Cells = Enumerable.Range(3, 3)
+                                .Select(column => new CellMeta { Row = 5, Column = column, NumberFormat = "0.00" })
+                                .ToList()
+                        }
+                    }
+                }),
                 null);
             useCase.SetSampleDataPoints(new[]
             {

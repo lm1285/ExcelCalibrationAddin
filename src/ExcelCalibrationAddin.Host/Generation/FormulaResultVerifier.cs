@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -24,8 +25,9 @@ namespace ExcelCalibrationAddin.Host.Generation
             new MeasurementRuleStructureAnalyzer().Apply(snapshot, rules);
             foreach (var rule in rules.Where(item => item != null &&
                                                     (item.ErrorFormula?.HasFormula == true ||
-                                                     GenerationRuleValidator.IsRepeatabilityRule(item))))
+                                                    GenerationRuleValidator.IsRepeatabilityRule(item))))
             {
+                GenerationRuleValidator.ValidateFormulaDependencies(rule);
                 VerifyRepeatabilityValues(snapshot, rule);
                 if (rule.ErrorFormula?.HasFormula == true)
                 {
@@ -65,6 +67,19 @@ namespace ExcelCalibrationAddin.Host.Generation
                 .Select(item => item.Anchor)
                 .Where(item => item != null)
                 .ToList();
+            // ErrorSource often spans the whole visual block (including merged or
+            // blank rows), while generation only writes rows that have a writable
+            // measurement cell.  Verifying every formula in the broad range can
+            // therefore validate stale formulas from non-generated rows.  Prefer
+            // the row mappings (or writable cells) as the authoritative set of
+            // generated rows when that information is available.
+            var generatedRows = ResolveGeneratedRows(rule);
+            if (generatedRows.Count > 0)
+            {
+                formulaCells = formulaCells
+                    .Where(cell => IsFormulaForGeneratedRow(cell, generatedRows))
+                    .ToList();
+            }
             if (formulaCells.Count == 0)
             {
                 throw new InvalidOperationException($"“{GenerationRuleValidator.ResolveRuleName(rule)}”公式验证失败：误差区域没有可读取的公式结果。");
@@ -113,9 +128,45 @@ namespace ExcelCalibrationAddin.Host.Generation
                     (requirementOperator != TechnicalRequirementOperator.None ||
                      value < bounds.lower - 1e-12 || value > bounds.upper + 1e-12))
                 {
-                    throw new InvalidOperationException($"“{GenerationRuleValidator.ResolveRuleName(rule)}”生成后 Excel 公式结果超出技术要求。");
+                    var diagnostic = BuildOutOfRangeDiagnostic(snapshot, rule, cell, value, requirementOperator, bounds);
+                    AddinFileLogger.Configure("VSTO");
+                    Trace.WriteLine("[Generation][FormulaOutOfRange] " + diagnostic);
+                    throw new InvalidOperationException(
+                        $"{diagnostic}{Environment.NewLine}{Environment.NewLine}详细错误已记录到：{AddinFileLogger.LogFilePath}{Environment.NewLine}请复制以上“公式超限诊断”内容反馈排查。");
                 }
             }
+        }
+
+        private static string BuildOutOfRangeDiagnostic(WorkbookSnapshot snapshot, MeasurementRule rule, CellMeta cell, double value, TechnicalRequirementOperator requirementOperator, (double lower, double upper) bounds)
+        {
+            var ruleName = GenerationRuleValidator.ResolveRuleName(rule);
+            var range = rule.ErrorSource?.Range;
+            var workbook = string.IsNullOrWhiteSpace(snapshot?.WorkbookName) ? "未知" : snapshot.WorkbookName;
+            return string.Join(Environment.NewLine, new[]
+            {
+                "公式超限诊断:",
+                $"项目={ruleName}",
+                $"工作簿={workbook}",
+                $"工作表={range?.SheetName ?? "未知"}",
+                $"公式单元格=R{cell?.Row ?? 0}C{cell?.Column ?? 0}",
+                $"公式={cell?.Formula ?? ""}",
+                $"公式结果={FormatDiagnosticNumber(value)}",
+                $"原始结果={cell?.RawValueText ?? ""}",
+                $"显示结果={cell?.Text ?? cell?.DisplayText ?? ""}",
+                $"技术要求操作符={requirementOperator}",
+                $"允许范围=[{FormatDiagnosticNumber(bounds.lower)}, {FormatDiagnosticNumber(bounds.upper)}]",
+                $"误差类型={rule.ErrorType}",
+                $"固定技术要求={FormatDiagnosticNumber(rule.FixedMpe)}",
+                $"负向限值={FormatDiagnosticNumber(rule.FixedNegativeTolerance)}",
+                $"正向限值={FormatDiagnosticNumber(rule.FixedPositiveTolerance)}",
+                $"测量值区域={rule.TargetRange?.ToString() ?? "未知"}",
+                $"误差区域={range?.ToString() ?? "未知"}"
+            });
+        }
+
+        private static string FormatDiagnosticNumber(double? value)
+        {
+            return value.HasValue ? value.Value.ToString("G17", CultureInfo.InvariantCulture) : "无";
         }
 
         private static void VerifyRepeatabilityValues(WorkbookSnapshot snapshot, MeasurementRule rule)
@@ -278,6 +329,59 @@ namespace ExcelCalibrationAddin.Host.Generation
                        NumberStyles.Float | NumberStyles.AllowThousands,
                        CultureInfo.CurrentCulture,
                        out value);
+        }
+
+        private static HashSet<int> ResolveGeneratedRows(MeasurementRule rule)
+        {
+            var rows = new HashSet<int>();
+            foreach (var mapping in rule?.RowMappings ?? new List<MeasurementRowMapping>())
+            {
+                if (mapping != null && mapping.Row > 0 &&
+                    (mapping.MeasurementCells?.Count ?? 0) > 0)
+                {
+                    rows.Add(mapping.Row);
+                }
+            }
+
+            if (rows.Count == 0)
+            {
+                foreach (var cell in rule?.WritableCells ?? new List<CellAddress>())
+                {
+                    if (cell?.Row > 0)
+                    {
+                        rows.Add(cell.Row);
+                    }
+                }
+            }
+
+            return rows;
+        }
+
+        private static bool IsFormulaForGeneratedRow(CellMeta cell, ISet<int> generatedRows)
+        {
+            if (cell == null || generatedRows == null || generatedRows.Count == 0)
+            {
+                return true;
+            }
+
+            if (generatedRows.Contains(cell.Row))
+            {
+                return true;
+            }
+
+            // A merged formula cell can have an anchor row different from the
+            // row displayed in the logical block. Match the rows referenced by
+            // the formula as a fallback.
+            foreach (Match match in Regex.Matches(cell.Formula ?? string.Empty, @"\$?[A-Z]{1,3}\$?(?<row>\d+)", RegexOptions.IgnoreCase))
+            {
+                if (int.TryParse(match.Groups["row"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var row) &&
+                    generatedRows.Contains(row))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 

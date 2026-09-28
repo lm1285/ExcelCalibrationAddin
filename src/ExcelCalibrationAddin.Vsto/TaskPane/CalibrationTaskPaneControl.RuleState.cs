@@ -116,6 +116,40 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		TemplateRegionMapping val = _currentMappings[rowIndex];
 		if (!_isBinding) _hasUnsavedChanges = true;
 		CellRange val2 = TaskPaneModelCloner.CloneRange(range);
+		int additionalIndex;
+		string additionalKind;
+		if (TryParseAdditionalField(columnName, out additionalIndex, out additionalKind))
+		{
+			var rule = GetRule(rowIndex);
+			if (rule == null || additionalIndex < 0) return;
+			if (val.AdditionalJudgementConstraints == null)
+			{
+				val.AdditionalJudgementConstraints = new List<MeasurementJudgementConstraint>();
+			}
+			while (val.AdditionalJudgementConstraints.Count <= additionalIndex)
+			{
+				val.AdditionalJudgementConstraints.Add(new MeasurementJudgementConstraint
+				{
+					Name = "附属判定" + (val.AdditionalJudgementConstraints.Count + 2)
+				});
+			}
+			var constraint = val.AdditionalJudgementConstraints[additionalIndex] ?? new MeasurementJudgementConstraint();
+			if (additionalKind == "Error")
+			{
+				constraint.ErrorSource = val2 == null ? null : new ParameterSource { Name = "误差" + (additionalIndex + 2), Range = TaskPaneModelCloner.CloneRange(val2) };
+			}
+			else if (additionalKind == "Mpe")
+			{
+				constraint.MpeSource = val2 == null ? null : new ParameterSource { Name = "MPE" + (additionalIndex + 2), Range = TaskPaneModelCloner.CloneRange(val2) };
+			}
+			else
+			{
+				constraint.ResultSource = val2 == null ? null : new ParameterSource { Name = "结论" + (additionalIndex + 2), Range = TaskPaneModelCloner.CloneRange(val2) };
+			}
+			val.AdditionalJudgementConstraints[additionalIndex] = constraint;
+			rule.AdditionalJudgementConstraints = MeasurementRuleCloner.CloneJudgementConstraints(val.AdditionalJudgementConstraints);
+			return;
+		}
 		switch (columnName)
 		{
 		case "Section":
@@ -249,6 +283,13 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		SetRangeForField(rowIndex, ColumnUncertainty, OffsetRangeWithinSection(source.UncertaintyRange, rowOffset, current.SectionRange));
 		SetRangeForField(rowIndex, ColumnRange, OffsetRangeWithinSection(source.RangeValueRange, rowOffset, current.SectionRange));
 		SetRangeForField(rowIndex, ColumnResult, OffsetRangeWithinSection(source.ResultRange, rowOffset, current.SectionRange));
+		for (int i = 0; i < (source.AdditionalJudgementConstraints?.Count ?? 0); i++)
+		{
+			var constraint = source.AdditionalJudgementConstraints[i];
+			SetRangeForField(rowIndex, "AdditionalError" + i, OffsetRangeWithinSection(constraint?.ErrorSource?.Range, rowOffset, current.SectionRange));
+			SetRangeForField(rowIndex, "AdditionalMpe" + i, OffsetRangeWithinSection(constraint?.MpeSource?.Range, rowOffset, current.SectionRange));
+			SetRangeForField(rowIndex, "AdditionalResult" + i, OffsetRangeWithinSection(constraint?.ResultSource?.Range, rowOffset, current.SectionRange));
+		}
 		BindMappings();
 		UpdateTemplateLibraryButtons();
 		NotifyGenerationStateChanged();

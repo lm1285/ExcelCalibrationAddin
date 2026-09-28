@@ -51,6 +51,11 @@ namespace ExcelCalibrationAddin.Host.Recognition
             {
                 FieldName = mapping.ProjectName,
                 FieldAlias = mapping.ProjectName,
+                BlockOrdinal = mapping.BlockOrdinal,
+                BlockRuleOrdinal = mapping.BlockRuleOrdinal,
+                BlockRange = CloneRange(mapping.BlockRange),
+                BlockStructureSignature = mapping.BlockStructureSignature,
+                BlockItemStructureSignature = mapping.BlockItemStructureSignature,
                 TargetRange = CloneRange(mapping.MeasurementValueRange),
                 ErrorType = ErrorType.Absolute,
                 FillMode = FillMode.Block,
@@ -65,6 +70,7 @@ namespace ExcelCalibrationAddin.Host.Recognition
                 UncertaintySource = BuildParameterSource("\u4E0D\u786E\u5B9A\u5EA6", mapping.UncertaintyRange),
                 ResultSource = BuildParameterSource("\u7ED3\u8BBA", mapping.ResultRange),
                 AdditionalJudgementConstraints = CloneJudgementConstraints(mapping.AdditionalJudgementConstraints),
+                RecognitionError = mapping.RecognitionError ?? string.Empty,
                 WritableCells = writableCells,
                 GroupSize = writableCells.Count > 0
                     ? writableCells.Count

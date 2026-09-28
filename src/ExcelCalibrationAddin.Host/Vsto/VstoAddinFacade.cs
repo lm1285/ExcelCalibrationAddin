@@ -441,7 +441,7 @@ namespace ExcelCalibrationAddin.Host.Vsto
                 AppliedGenerationConfiguration = template.GenerationConfiguration,
                 UsesTemplateGenerationConfiguration = template.GenerationConfiguration != null,
                 IsFeatureBlocked = false,
-                CanGenerate = rules.Count > 0,
+                CanGenerate = rules.Count > 0 && !rules.Any(rule => !string.IsNullOrWhiteSpace(rule?.RecognitionError)),
                 MappingItems = BuildMappingsFromRules(rules),
                 DraftRules = rules
             };
@@ -464,7 +464,8 @@ namespace ExcelCalibrationAddin.Host.Vsto
                     RangeValueRange = CloneSavedTemplateRange(rule.RangeSource?.Range),
                     UncertaintyRange = CloneSavedTemplateRange(rule.UncertaintySource?.Range),
                     ResultRange = CloneSavedTemplateRange(rule.ResultSource?.Range),
-                    AdditionalJudgementConstraints = MeasurementRuleCloner.CloneJudgementConstraints(rule.AdditionalJudgementConstraints)
+                    AdditionalJudgementConstraints = MeasurementRuleCloner.CloneJudgementConstraints(rule.AdditionalJudgementConstraints),
+                    RecognitionError = rule.RecognitionError
                 })
                 .ToList();
         }

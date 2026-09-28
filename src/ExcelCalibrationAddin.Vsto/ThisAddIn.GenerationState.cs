@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using ExcelCalibrationAddin.Contracts;
 using ExcelCalibrationAddin.Core.Models;
 using ExcelCalibrationAddin.Host.ViewModels;
@@ -130,7 +131,8 @@ namespace ExcelCalibrationAddin.Vsto
             _lastGenerationState.DraftRules = rules ?? new List<MeasurementRule>();
             _lastGenerationState.AppliedGenerationConfiguration = generationConfiguration ?? LoadGenerationConfiguration();
             _lastGenerationState.GenerationWarningMessages = ResolveGenerationWarnings();
-            _lastGenerationState.CanGenerate = _lastGenerationState.DraftRules.Count > 0;
+            _lastGenerationState.CanGenerate = _lastGenerationState.DraftRules.Count > 0 &&
+                !_lastGenerationState.DraftRules.Any(rule => !string.IsNullOrWhiteSpace(rule?.RecognitionError));
             _lastGenerationState.IsFeatureBlocked = false;
 
             if (!string.IsNullOrWhiteSpace(workbookKey))

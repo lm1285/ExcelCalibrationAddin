@@ -37,7 +37,9 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		bool isCollapsed = _collapsedCalibrationRows.Contains(rowIndex);
 		int standardPanelHeight = CalculateStandardValuePanelHeight(GetRule(rowIndex));
 		int fieldTop = 50 + standardPanelHeight;
-		const int fieldGridHeight = 210;
+		int additionalCount = GetRule(rowIndex)?.AdditionalJudgementConstraints?.Count ?? 0;
+		int additionalRows = additionalCount * 2;
+		int fieldGridHeight = 210 + additionalRows * 42;
 		int statusTop = fieldTop + fieldGridHeight + 6;
 		Panel panel = new Panel
 		{
@@ -104,14 +106,14 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		{
 			BackColor = panel.BackColor,
 			ColumnCount = 2,
-			RowCount = 5,
+			RowCount = 5 + additionalRows,
 			Margin = Padding.Empty,
 			Padding = Padding.Empty
 		};
 		tableLayoutPanel.SetBounds(12, fieldTop, panel.Width - 24, fieldGridHeight);
 		tableLayoutPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
 		tableLayoutPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
-		for (int i = 0; i < 5; i++)
+		for (int i = 0; i < 5 + additionalRows; i++)
 		{
 			tableLayoutPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42f));
 		}
@@ -139,13 +141,26 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		AddFieldStatus(tableLayoutPanel, rowIndex, 1, 3, "不确定度", "Uncertainty", mapping.UncertaintyRange);
 		AddFieldStatus(tableLayoutPanel, rowIndex, 0, 4, "量程", "Range", mapping.RangeValueRange);
 		AddFieldStatus(tableLayoutPanel, rowIndex, 1, 4, "结论", "Result", mapping.ResultRange);
+		for (int i = 0; i < additionalCount; i++)
+		{
+			var constraint = GetRule(rowIndex)?.AdditionalJudgementConstraints?[i];
+			int row = 5 + i;
+			AddFieldStatus(tableLayoutPanel, rowIndex, 0, row, "误差" + (i + 2), "AdditionalError" + i, constraint?.ErrorSource?.Range);
+			AddFieldStatus(tableLayoutPanel, rowIndex, 1, row, "MPE" + (i + 2), "AdditionalMpe" + i, constraint?.MpeSource?.Range);
+		}
+		int resultRow = 5 + additionalCount;
+		for (int i = 0; i < additionalCount; i++)
+		{
+			var constraint = GetRule(rowIndex)?.AdditionalJudgementConstraints?[i];
+			AddFieldStatus(tableLayoutPanel, rowIndex, 0, resultRow++, "结论" + (i + 2), "AdditionalResult" + i, constraint?.ResultSource?.Range);
+		}
 		Label mappingStatus = new Label
 		{
 			AutoEllipsis = true,
 			Font = new Font("Microsoft YaHei UI", 8f),
 			ForeColor = Color.FromArgb(84, 84, 88),
 			Text = BuildRuleStructureStatus(GetRule(rowIndex)),
-			Visible = false
+			Visible = !string.IsNullOrWhiteSpace(GetRule(rowIndex)?.RecognitionError)
 		};
 		mappingStatus.SetBounds(12, statusTop, panel.Width - 24, 18);
 		control.Visible = !isCollapsed;
@@ -171,6 +186,10 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 
 	private static string BuildRuleStructureStatus(MeasurementRule rule)
 	{
+		if (!string.IsNullOrWhiteSpace(rule?.RecognitionError))
+		{
+			return "识别失败：" + rule.RecognitionError;
+		}
 		int totalRows = rule?.RowMappings?.Count ?? 0;
 		int completeRows = rule?.RowMappings?.Count(item => item != null && item.IsComplete) ?? 0;
 		string rowStatus = totalRows == 0 ? "映射未建立" : $"映射 {completeRows}/{totalRows}";
@@ -178,7 +197,9 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 		string requirementFormulaStatus = rule?.ErrorFormula?.TechnicalRequirementFormulaResolved == true
 			? "技术要求已定位"
 			: "技术要求未定位";
-		return rowStatus + " | " + formulaStatus + " | " + requirementFormulaStatus;
+		int additionalCount = rule?.AdditionalJudgementConstraints?.Count ?? 0;
+		string additionalStatus = additionalCount > 0 ? $"附属判定 {additionalCount} 组" : "附属判定 0 组";
+		return rowStatus + " | " + formulaStatus + " | " + requirementFormulaStatus + " | " + additionalStatus;
 	}
 
 	private Control CreateStandardValuePanel(int rowIndex, int width)

@@ -32,10 +32,10 @@ namespace ExcelCalibrationAddin.Host.UseCases
             if (GenerationRuleValidator.IsUpperLimitRule(rule))
             {
                 GenerationRuleValidator.ValidateUpperLimitRule(rule, writableCells.Count, writableResolution.FailureReason);
-                return GenerateUpperLimitPreview(rule, writableCells);
+                return GenerateUpperLimitPreview(rule, writableCells, session);
             }
 
-            if (GenerationRuleValidator.IsRepeatabilityRule(rule))
+            if (GenerationRuleValidator.IsRepeatabilityGenerationRule(rule))
             {
                 GenerationRuleValidator.ValidateRepeatabilityRule(rule, writableCells.Count, writableResolution.FailureReason);
                 var preview = GenerateRepeatabilityPreview(rule, writableCells, session);
@@ -109,7 +109,7 @@ namespace ExcelCalibrationAddin.Host.UseCases
                 ErrorType = GenerationRuleValidator.ResolveGenerationErrorType(rule),
                 DistributionMode = ResolveDistributionMode(_generationConfiguration),
                 ValueCount = valueCount,
-                DecimalPlaces = decimalPlacesByValue?.FirstOrDefault() ?? rule.FormatRule.DecimalPlaces ?? 2,
+                DecimalPlaces = decimalPlacesByValue?.FirstOrDefault() ?? 1,
                 DecimalPlacesByValue = decimalPlacesByValue?.ToList() ?? new List<int>(),
                 ForcePositiveDirection = rule.PositiveDirectionOnly || forcedDirection > 0,
                 ForceNegativeDirection = rule.NegativeDirectionOnly || forcedDirection < 0,
@@ -207,6 +207,16 @@ namespace ExcelCalibrationAddin.Host.UseCases
 
         private static double CalculateFormulaError(MeasurementRule rule, double standardValue, IReadOnlyList<double> rawValues)
         {
+            if (IsMeasurementRangeSpreadFormula(rule?.ErrorFormula?.Formula) &&
+                rawValues != null && rawValues.Count > 0)
+            {
+                // A common secondary judgement formula is repeatability expressed
+                // as MAX(measurements)-MIN(measurements). Using the first reading's
+                // deviation from the standard here validates the wrong quantity
+                // and lets a series exceed its repeatability limit.
+                return rawValues.Max() - rawValues.Min();
+            }
+
             var error = CalculateRepresentativeError(rule, standardValue, rawValues);
             switch (rule?.ErrorFormula?.Scale)
             {
@@ -221,6 +231,15 @@ namespace ExcelCalibrationAddin.Host.UseCases
                 default:
                     return error;
             }
+        }
+
+        private static bool IsMeasurementRangeSpreadFormula(string formula)
+        {
+            return !string.IsNullOrWhiteSpace(formula) &&
+                Regex.IsMatch(
+                    formula,
+                    @"MAX\s*\([^)]*\)\s*-\s*MIN\s*\(",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         }
 
         private static double ScaleFormulaRatio(double ratio, ErrorFormulaInfo formula)

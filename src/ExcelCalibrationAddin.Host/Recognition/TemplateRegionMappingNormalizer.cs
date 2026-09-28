@@ -9,6 +9,11 @@ namespace ExcelCalibrationAddin.Host.Recognition
     {
         public static TemplateRegionMapping Normalize(SheetSnapshot sheet, TemplateRegionMapping mapping)
         {
+            // Keep the recognized section bounds before trimming blank/note rows.
+            // The trimmed section is useful for matching, but must not allow a
+            // merged field to expand into the next calibration item.
+            var sectionStartRow = mapping.SectionRange?.StartRow;
+            var sectionEndRow = mapping.SectionRange?.EndRow;
             mapping.SectionRange = TrimRangeToDataRows(sheet, mapping.SectionRange);
             mapping.SetpointValueRange = TrimRangeToDataRows(sheet, mapping.SetpointValueRange);
             mapping.MeasurementValueRange = TrimMeasurementRangeToDataRows(sheet, mapping.MeasurementValueRange);
@@ -21,7 +26,39 @@ namespace ExcelCalibrationAddin.Host.Recognition
             mapping.UncertaintyRange = TrimRangeToDataRows(sheet, mapping.UncertaintyRange);
             mapping.RangeValueRange = TrimRangeToDataRows(sheet, mapping.RangeValueRange);
             mapping.ResultRange = TrimRangeToDataRows(sheet, mapping.ResultRange);
+            mapping.SetpointValueRange = ClampToSection(mapping.SetpointValueRange, sectionStartRow, sectionEndRow);
+            mapping.StandardValueRange = ClampToSection(mapping.StandardValueRange, sectionStartRow, sectionEndRow);
+            mapping.MeasurementValueRange = ClampToSection(mapping.MeasurementValueRange, sectionStartRow, sectionEndRow);
+            mapping.AverageValueRange = ClampToSection(mapping.AverageValueRange, sectionStartRow, sectionEndRow);
+            mapping.ErrorValueRange = ClampToSection(mapping.ErrorValueRange, sectionStartRow, sectionEndRow);
+            mapping.TechnicalRequirementRange = ClampToSection(mapping.TechnicalRequirementRange, sectionStartRow, sectionEndRow);
+            mapping.UncertaintyRange = ClampToSection(mapping.UncertaintyRange, sectionStartRow, sectionEndRow);
+            mapping.ResultRange = ClampToSection(mapping.ResultRange, sectionStartRow, sectionEndRow);
             return mapping;
+        }
+
+        private static CellRange ClampToSection(CellRange range, int? sectionStartRow, int? sectionEndRow)
+        {
+            if (range == null || !sectionStartRow.HasValue || !sectionEndRow.HasValue)
+            {
+                return range;
+            }
+
+            var startRow = Math.Max(range.StartRow, sectionStartRow.Value);
+            var endRow = Math.Min(range.EndRow, sectionEndRow.Value);
+            if (endRow < startRow)
+            {
+                return null;
+            }
+
+            return new CellRange
+            {
+                SheetName = range.SheetName,
+                StartRow = startRow,
+                EndRow = endRow,
+                StartColumn = range.StartColumn,
+                EndColumn = range.EndColumn
+            };
         }
 
         private static CellRange TrimRangeToDataRows(SheetSnapshot sheet, CellRange range)

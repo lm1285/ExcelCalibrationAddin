@@ -59,6 +59,14 @@ namespace ExcelCalibrationAddin.Core.Services
             var numberedFields = BuildNumberedSectionFields(sheet);
             if (numberedFields.Count > 0)
             {
+                // Some books number an outer context heading (for example a gas
+                // block) while the actual calibration items below it are unnumbered.
+                // In that case the inner item headings are the useful fields.
+                if (numberedFields.All(field => !field.Reason.Contains("按子标题识别")))
+                {
+                    var fallbackFields = BuildUnnumberedSectionFields(sheet);
+                    if (fallbackFields.Count > 0) return fallbackFields;
+                }
                 return numberedFields;
             }
 
@@ -364,9 +372,14 @@ namespace ExcelCalibrationAddin.Core.Services
                 .Where(cell => !string.IsNullOrWhiteSpace(cell?.Text) || !string.IsNullOrWhiteSpace(cell?.Formula))
                 .ToList();
 
+            var isMergedTitle = (rowCells ?? new List<CellMeta>()).Any(cell =>
+                string.Equals((cell?.Text ?? string.Empty).Trim(), (text ?? string.Empty).Trim(), StringComparison.Ordinal) &&
+                cell.IsMerged && cell.MergeRange != null &&
+                (cell.MergeRange.EndColumn > cell.MergeRange.StartColumn || cell.MergeRange.EndRow > cell.MergeRange.StartRow));
+
             return SectionKeywords.Any(keyword => text.Contains(keyword)) &&
                 text.Length <= 24 &&
-                populatedCells.Count == 1;
+                (populatedCells.Count == 1 || isMergedTitle);
         }
 
         private static string CleanSectionTitle(string text)

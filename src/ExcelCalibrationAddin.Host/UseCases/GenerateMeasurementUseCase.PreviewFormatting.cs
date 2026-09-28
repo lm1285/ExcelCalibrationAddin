@@ -17,7 +17,10 @@ namespace ExcelCalibrationAddin.Host.UseCases
             MeasurementRule rule,
             IReadOnlyList<CellAddress> measurementCells)
         {
-            var fallback = rule?.FormatRule?.DecimalPlaces ?? 2;
+            // Precision is read from the current target cell on every
+            // generation. A stale template format is not authoritative;
+            // unreadable formats use the documented one-decimal fallback.
+            var fallback = 1;
             var interpreter = new NumberFormatInterpreter();
             return measurementCells.Select(address =>
             {
@@ -32,7 +35,7 @@ namespace ExcelCalibrationAddin.Host.UseCases
             MeasurementRule rule)
         {
             var range = rule?.ErrorSource?.Range;
-            var fallback = rule?.FormatRule?.DecimalPlaces ?? 2;
+            var fallback = 1;
             if (range == null)
             {
                 return fallback;
@@ -58,22 +61,34 @@ namespace ExcelCalibrationAddin.Host.UseCases
 
         private static string ResolveMeasurementUnit(MeasurementGenerationSession session, MeasurementRule rule)
         {
-            var configuredUnit = (rule?.FormatRule?.UnitSuffix ?? string.Empty).Trim();
-            if (configuredUnit.Length > 0)
+            // Read the active unit signal from the current workbook snapshot
+            // first.  A formula-backed unit can change between generations,
+            // so the format captured during recognition is only a diagnostic
+            // fallback and never the runtime authority.
+            var ranges = new[]
             {
-                return configuredUnit;
+                rule?.MpeSource?.Range,
+                rule?.ErrorSource?.Range,
+                rule?.StandardValueSource?.Range,
+                rule?.TargetRange
+            }.Where(range => range != null).ToList();
+            foreach (var range in ranges)
+            {
+                for (var row = range.StartRow; row <= range.EndRow; row++)
+                {
+                    for (var column = range.StartColumn; column <= range.EndColumn; column++)
+                    {
+                        var cell = session.FindCell(range.SheetName, row, column);
+                        var unit = TemplateUnitParser.Extract(cell?.DisplayText, cell?.Text, cell?.RawValueText, cell?.NumberFormat);
+                        if (!string.IsNullOrWhiteSpace(unit))
+                        {
+                            return unit.Trim();
+                        }
+                    }
+                }
             }
 
-            var range = rule?.StandardValueSource?.Range;
-            if (range == null)
-            {
-                return string.Empty;
-            }
-
-            var text = session.FindCell(range.SheetName, range.StartRow, range.StartColumn)?.Text ?? string.Empty;
-            return Regex.Replace(text, @"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?", string.Empty)
-                .Replace("±", string.Empty)
-                .Trim();
+            return (rule?.FormatRule?.UnitSuffix ?? string.Empty).Trim();
         }
 
         private static int? ResolveDisplayedDecimalPlaces(string text)

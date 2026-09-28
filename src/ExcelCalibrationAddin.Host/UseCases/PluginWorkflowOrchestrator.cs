@@ -65,6 +65,11 @@ namespace ExcelCalibrationAddin.Host.UseCases
             };
         }
 
+        public CachedTemplateRule MatchLocalSubset(IReadOnlyList<MeasurementRule> currentRules)
+        {
+            return _cacheRepository.FindBestSubsetMatch(currentRules);
+        }
+
         private static bool HasEnabledLocalRules(CachedTemplateRule local)
         {
             return local != null &&
@@ -132,3 +137,4 @@ namespace ExcelCalibrationAddin.Host.UseCases
         public CachedTemplateRule Local { get; set; }
     }
 }
+

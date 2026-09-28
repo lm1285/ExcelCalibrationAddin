@@ -164,6 +164,13 @@ namespace ExcelCalibrationAddin.Host.Vsto
 
         private static bool HasMatchedGenerationRules(RecognitionAndDraftResult result)
         {
+            if (result?.DraftRules == null ||
+                result.DraftRules.Count == 0 ||
+                result.DraftRules.Any(rule => !string.IsNullOrWhiteSpace(rule?.RecognitionError)))
+            {
+                return false;
+            }
+
             return (result?.Local?.Rules != null &&
                     result.Local.Rules.Count > 0 &&
                     result.Local.Status == TemplateLifecycleStatus.Enabled &&

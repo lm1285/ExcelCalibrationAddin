@@ -5,6 +5,7 @@ using ExcelCalibrationAddin.Core.Services;
 using ExcelCalibrationAddin.Host.Recognition;
 using ExcelCalibrationAddin.Host.Services;
 using ExcelCalibrationAddin.Host.UseCases;
+using ExcelCalibrationAddin.Host.Generation;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace ExcelCalibrationAddin.Core.Tests
@@ -68,6 +69,7 @@ namespace ExcelCalibrationAddin.Core.Tests
 
             var mappings = new MeasurementRuleDraftBuilder(new NumberFormatInterpreter()).BuildMappings(recognition);
 
+
             Assert.AreEqual(1, mappings.Count);
             Assert.AreEqual(1, mappings[0].AdditionalJudgementConstraints.Count);
             Assert.AreEqual(6, mappings[0].AdditionalJudgementConstraints[0].ErrorSource.Range.StartColumn);
@@ -109,6 +111,136 @@ namespace ExcelCalibrationAddin.Core.Tests
             Assert.AreEqual(1d, resolved.FixedMpe.GetValueOrDefault(), 1e-12);
             Assert.IsTrue(resolved.AdditionalJudgementConstraints[0].FixedMpe.GetValueOrDefault() < resolved.FixedMpe.GetValueOrDefault());
             Assert.AreEqual(TechnicalRequirementOperator.PlusMinus, resolved.AdditionalJudgementConstraints[0].RequirementOperator);
+        }
+
+        [TestMethod]
+        public void DraftBuilderPairsThreeErrorAndMpeColumnsBySharedRows()
+        {
+            var snapshot = BuildMultiConstraintSnapshot(threeMpe: true);
+            var recognition = BuildRecognition(snapshot, "示值误差与重复性");
+
+            var mapping = new MeasurementRuleDraftBuilder(new NumberFormatInterpreter())
+                .BuildMappings(recognition)
+                .Single();
+
+
+            Assert.IsTrue(string.IsNullOrWhiteSpace(mapping.RecognitionError));
+            Assert.AreEqual(2, mapping.AdditionalJudgementConstraints.Count);
+            Assert.AreEqual(6, mapping.AdditionalJudgementConstraints[0].ErrorSource.Range.StartColumn);
+            Assert.AreEqual(7, mapping.AdditionalJudgementConstraints[0].MpeSource.Range.StartColumn);
+            Assert.AreEqual(9, mapping.AdditionalJudgementConstraints[1].ErrorSource.Range.StartColumn);
+            Assert.AreEqual(10, mapping.AdditionalJudgementConstraints[1].MpeSource.Range.StartColumn);
+        }
+
+        [TestMethod]
+        public void DraftBuilderFailsWhenErrorAndMpeCountsDiffer()
+        {
+            var snapshot = BuildMultiConstraintSnapshot(threeMpe: false);
+            var mapping = new MeasurementRuleDraftBuilder(new NumberFormatInterpreter())
+                .BuildMappings(BuildRecognition(snapshot, "示值误差与重复性"))
+                .Single();
+
+
+            StringAssert.Contains(mapping.RecognitionError, "数量不一致");
+            var rule = new MeasurementRuleDraftBuilder(new NumberFormatInterpreter())
+                .BuildDraftRules(BuildRecognition(snapshot, "示值误差与重复性"), new[] { mapping })
+                .Single();
+            Assert.ThrowsException<System.InvalidOperationException>(() =>
+                GenerationRuleValidator.ValidateFormulaDependencies(rule));
+        }
+
+        [TestMethod]
+        public void DraftBuilderPairsVerticallyStackedErrorAndMpeRows()
+        {
+            var cells = new List<CellMeta>
+            {
+                new CellMeta { Row = 1, Column = 1, Text = "示值误差与重复性" },
+                new CellMeta { Row = 2, Column = 1, Text = "标准值" },
+                new CellMeta { Row = 2, Column = 2, Text = "测量值" },
+                new CellMeta { Row = 2, Column = 3, Text = "示值误差" },
+                new CellMeta { Row = 2, Column = 4, Text = "技术要求" },
+                new CellMeta { Row = 2, Column = 5, Text = "结论" },
+                new CellMeta { Row = 3, Column = 1, Text = "100" },
+                new CellMeta { Row = 3, Column = 2, Text = "100.2" },
+                new CellMeta { Row = 3, Column = 3, Text = "0.2", Formula = "=B3-A3" },
+                new CellMeta { Row = 3, Column = 4, Text = "±1" },
+                new CellMeta { Row = 3, Column = 5, Text = "合格" },
+                new CellMeta { Row = 4, Column = 3, Text = "重复性" },
+                new CellMeta { Row = 4, Column = 4, Text = "技术要求" },
+                new CellMeta { Row = 4, Column = 5, Text = "结论" },
+                new CellMeta { Row = 5, Column = 1, Text = "100" },
+                new CellMeta { Row = 5, Column = 2, Text = "100.1" },
+                new CellMeta { Row = 5, Column = 3, Text = "0.1", Formula = "=B5-A5" },
+                new CellMeta { Row = 5, Column = 4, Text = "±0.5" },
+                new CellMeta { Row = 5, Column = 5, Text = "合格" }
+            };
+            var snapshot = new WorkbookSnapshot
+            {
+                Sheets = new List<SheetSnapshot> { new SheetSnapshot { Name = "Sheet1", Cells = cells } }
+            };
+            var mapping = new MeasurementRuleDraftBuilder(new NumberFormatInterpreter())
+                .BuildMappings(BuildRecognition(snapshot, "示值误差与重复性"))
+                .Single();
+
+            Assert.IsTrue(string.IsNullOrWhiteSpace(mapping.RecognitionError));
+            Assert.AreEqual(1, mapping.AdditionalJudgementConstraints.Count);
+            Assert.AreEqual(5, mapping.AdditionalJudgementConstraints[0].ErrorSource.Range.StartRow);
+            Assert.AreEqual(5, mapping.AdditionalJudgementConstraints[0].MpeSource.Range.StartRow);
+        }
+
+        private static RecognitionResult BuildRecognition(WorkbookSnapshot snapshot, string alias)
+        {
+            return new RecognitionResult
+            {
+                Snapshot = snapshot,
+                RecognizedFields = new List<RecognizedField>
+                {
+                    new RecognizedField
+                    {
+                        Alias = alias,
+                        Score = 96,
+                        Range = new CellRange { SheetName = "Sheet1", StartRow = 1, EndRow = snapshot.Sheets.First().Cells.Max(cell => cell.Row), StartColumn = 1, EndColumn = 11 }
+                    }
+                }
+            };
+        }
+
+        private static WorkbookSnapshot BuildMultiConstraintSnapshot(bool threeMpe)
+        {
+            var cells = new List<CellMeta>
+            {
+                new CellMeta { Row = 1, Column = 1, Text = "示值误差与重复性" },
+                new CellMeta { Row = 2, Column = 1, Text = "标准值" },
+                new CellMeta { Row = 2, Column = 2, Text = "测量值" },
+                new CellMeta { Row = 2, Column = 3, Text = "示值误差" },
+                new CellMeta { Row = 2, Column = 4, Text = "技术要求" },
+                new CellMeta { Row = 2, Column = 5, Text = "结论" },
+                new CellMeta { Row = 2, Column = 6, Text = "重复性" },
+                new CellMeta { Row = 2, Column = 7, Text = "技术要求" },
+                new CellMeta { Row = 2, Column = 8, Text = "结论" },
+                new CellMeta { Row = 2, Column = 9, Text = "相对误差" },
+                new CellMeta { Row = 2, Column = 10, Text = threeMpe ? "技术要求" : "说明" },
+                new CellMeta { Row = 2, Column = 11, Text = "结论" },
+                new CellMeta { Row = 3, Column = 1, Text = "100" },
+                new CellMeta { Row = 3, Column = 2, Text = "100.2" },
+                new CellMeta { Row = 3, Column = 3, Text = "0.2", Formula = "=B3-A3" },
+                new CellMeta { Row = 3, Column = 4, Text = "±1" },
+                new CellMeta { Row = 3, Column = 5, Text = "合格", Formula = "=IF(ABS(C3)<=D3,\"合格\",\"不合格\")" },
+                new CellMeta { Row = 3, Column = 6, Text = "0.1", Formula = "=MAX(B3)-MIN(B3)" },
+                new CellMeta { Row = 3, Column = 7, Text = "±0.5" },
+                new CellMeta { Row = 3, Column = 8, Text = "合格", Formula = "=IF(ABS(F3)<=G3,\"合格\",\"不合格\")" },
+                new CellMeta { Row = 3, Column = 9, Text = "0.3", Formula = "=C3" },
+                new CellMeta { Row = 3, Column = 11, Text = "合格", Formula = "=IF(ABS(I3)<=J3,\"合格\",\"不合格\")" }
+            };
+            if (threeMpe)
+            {
+                cells.Add(new CellMeta { Row = 3, Column = 10, Text = "±0.8" });
+            }
+
+            return new WorkbookSnapshot
+            {
+                Sheets = new List<SheetSnapshot> { new SheetSnapshot { Name = "Sheet1", Cells = cells } }
+            };
         }
 
         private static WorkbookSnapshot BuildSecondaryConstraintSnapshot()

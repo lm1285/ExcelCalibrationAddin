@@ -32,6 +32,10 @@ namespace ExcelCalibrationAddin.Core.Repositories
                 }
 
                 var missing = new List<string>();
+                if (!string.IsNullOrWhiteSpace(rule.RecognitionError))
+                {
+                    missing.Add("模板识别错误：" + rule.RecognitionError);
+                }
                 if (!HasValidRange(rule.TargetRange))
                 {
                     missing.Add("测量值");

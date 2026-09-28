@@ -40,6 +40,7 @@ namespace ExcelCalibrationAddin.Host.Services
 
         private sealed class ResultHeaderCandidate
         {
+            public int HeaderRow { get; set; }
             public int StartColumn { get; set; }
             public int EndColumn { get; set; }
             public int DataStartRow { get; set; }

@@ -42,6 +42,24 @@ namespace ExcelCalibrationAddin.Host.Templates
 
         private static MeasurementRule RemoveWorkbookValues(MeasurementRule rule)
         {
+            if (rule == null)
+            {
+                return null;
+            }
+
+            // A saved template is a location/relationship description.  These
+            // fields are derived from the workbook snapshot and must be
+            // rebuilt on every generation, otherwise a changed formula or
+            // requirement silently reuses the old MPE/unit interpretation.
+            rule.FixedMpe = null;
+            rule.FixedNegativeTolerance = null;
+            rule.FixedPositiveTolerance = null;
+            rule.FixedReferenceRange = null;
+            rule.RequirementOperator = TechnicalRequirementOperator.None;
+            rule.ErrorFormula = null;
+            rule.MpeSource = ClearDynamicPattern(rule.MpeSource);
+            rule.RangeSource = ClearDynamicPattern(rule.RangeSource);
+
             if (HasRange(rule?.StandardValueSource?.Range) ||
                 (rule?.RowMappings ?? new List<MeasurementRowMapping>()).Any(mapping => HasRange(mapping?.StandardValueRange)))
             {
@@ -56,13 +74,66 @@ namespace ExcelCalibrationAddin.Host.Templates
                 }
             }
 
-            if (HasRange(rule?.RangeSource?.Range) ||
-                (rule?.RowMappings ?? new List<MeasurementRowMapping>()).Any(mapping => HasRange(mapping?.RangeValueRange)))
+            foreach (var constraint in rule.AdditionalJudgementConstraints ?? new List<MeasurementJudgementConstraint>())
             {
-                rule.FixedReferenceRange = null;
+                if (constraint == null) continue;
+                constraint.FixedMpe = null;
+                constraint.FixedNegativeTolerance = null;
+                constraint.FixedPositiveTolerance = null;
+                constraint.RequirementOperator = TechnicalRequirementOperator.None;
+                constraint.ErrorFormula = null;
+                constraint.MpeSource = ClearDynamicPattern(constraint.MpeSource);
+            }
+
+            foreach (var mapping in rule.RowMappings ?? new List<MeasurementRowMapping>())
+            {
+                foreach (var constraint in mapping?.AdditionalJudgementConstraints ?? new List<MeasurementJudgementConstraint>())
+                {
+                    if (constraint == null) continue;
+                    constraint.FixedMpe = null;
+                    constraint.FixedNegativeTolerance = null;
+                    constraint.FixedPositiveTolerance = null;
+                    constraint.RequirementOperator = TechnicalRequirementOperator.None;
+                    constraint.ErrorFormula = null;
+                    constraint.MpeSource = ClearDynamicPattern(constraint.MpeSource);
+                }
+            }
+
+            // Keep only location and role metadata in the template definition.
+            // Header text, unit strings, requirement literals, and formula text
+            // are all workbook state and must be reread from the live workbook.
+            foreach (var region in rule.TemplateDefinition?.Regions ?? new List<TemplateRegionDefinition>())
+            {
+                if (region == null) continue;
+                region.Unit = string.Empty;
+                region.Units = new List<string>();
+                region.HeaderPath = new List<string>();
+                region.NumberFormat = string.Empty;
+                region.Formula = null;
+                region.FormulaVariants = new List<TemplateFormulaDefinition>();
+                region.RequirementValues = new List<TemplateRequirementValue>();
+                region.OperatorRange = null;
+                region.ValueRange = null;
+            }
+            foreach (var header in rule.TemplateDefinition?.Headers ?? new List<TemplateHeaderDefinition>())
+            {
+                if (header == null) continue;
+                header.Text = string.Empty;
+                header.Unit = string.Empty;
+                header.NumberFormat = string.Empty;
             }
 
             return rule;
+        }
+
+        private static ParameterSource ClearDynamicPattern(ParameterSource source)
+        {
+            if (source != null)
+            {
+                source.ValuePattern = string.Empty;
+            }
+
+            return source;
         }
 
         private static void ApplySubmittedStandardValueMode(MeasurementRule target, MeasurementRule submitted)

@@ -85,7 +85,6 @@ namespace ExcelCalibrationAddin.Host.Services
                     endRow,
                     field.Alias,
                     standardRange,
-                    measurementRange,
                     averageRange);
 
                 errorRange = errorRange ?? _errorRangeDetector.Infer(
@@ -96,8 +95,7 @@ namespace ExcelCalibrationAddin.Host.Services
                     averageRange,
                     standardRange);
 
-                if (RangesOverlap(errorRange, measurementRange) ||
-                    RangesOverlap(errorRange, averageRange) ||
+                if (RangesOverlap(errorRange, averageRange) ||
                     RangesOverlap(errorRange, standardRange))
                 {
                     errorRange = null;
@@ -146,6 +144,7 @@ namespace ExcelCalibrationAddin.Host.Services
                     ?? InferRangeFromLayout(sheet, headerBand, endRow, RangeKeywords, technicalRange, uncertaintyRange, errorRange);
                 var resultRange = FindDataRange(sheet, startRow, endRow, ResultKeywords)
                     ?? InferRangeFromLayout(sheet, headerBand, endRow, ResultKeywords, uncertaintyRange, technicalRange, errorRange);
+                string additionalJudgementError;
                 var additionalJudgementConstraints = BuildAdditionalJudgementConstraints(
                     sheet,
                     startRow,
@@ -155,6 +154,7 @@ namespace ExcelCalibrationAddin.Host.Services
                     errorRange,
                     technicalRange,
                     resultRange,
+                    out additionalJudgementError,
                     standardRange,
                     measurementRange,
                     averageRange,
@@ -183,12 +183,17 @@ namespace ExcelCalibrationAddin.Host.Services
                     RangeValueRange = rangeValueRange,
                     ResultRange = resultRange,
                     AdditionalJudgementConstraints = additionalJudgementConstraints,
+                    RecognitionError = additionalJudgementError,
                     Notes = BuildNotes(sheet, startRow, endRow)
                 });
 
                 mappings.Add(normalizedMapping);
             }
 
+            RepeatedBlockRecognizer.Apply(
+                recognition.Snapshot.Sheets.FirstOrDefault(sheet =>
+                    string.Equals(sheet.Name, mappings.FirstOrDefault()?.SectionRange?.SheetName, StringComparison.OrdinalIgnoreCase)),
+                mappings);
             return mappings;
         }
 

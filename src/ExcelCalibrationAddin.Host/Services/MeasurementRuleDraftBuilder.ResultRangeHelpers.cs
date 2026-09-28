@@ -51,6 +51,7 @@ namespace ExcelCalibrationAddin.Host.Services
                     item.Row <= searchEndRow &&
                     !string.IsNullOrWhiteSpace(item.Text) &&
                     !LooksLikeSectionTitle(item.Text) &&
+                    !(item.Row == startRow && string.Equals(NormalizeHeaderText(item.Text), NormalizeHeaderText(projectName), StringComparison.OrdinalIgnoreCase)) &&
                     IsErrorHeaderForProject(item.Text, aliases))
                 .OrderBy(item => item.Row)
                 .ThenBy(item => item.Column))
@@ -68,6 +69,23 @@ namespace ExcelCalibrationAddin.Host.Services
                     ?? FindFirstDataRow(sheet, candidateDataStartRow, endRow, columnStart, columnEnd);
                 if (dataStartRow <= 0)
                 {
+                    var horizontal = BuildHorizontalDataRangeFromHeader(sheet, startRow, endRow, cell, columnStart, columnEnd);
+                    if (horizontal != null)
+                    {
+                        var horizontalFormulaCount = CountFormulaCells(sheet, horizontal.StartRow, horizontal.EndRow, horizontal.StartColumn, horizontal.EndColumn);
+                        var horizontalScore = ScoreErrorHeader(cell.Text, aliases) + horizontalFormulaCount * 10;
+                        if (best == null || horizontalScore > best.Score)
+                        {
+                            best = new ResultHeaderCandidate
+                            {
+                                HeaderRow = cell.Row,
+                                StartColumn = horizontal.StartColumn,
+                                EndColumn = horizontal.EndColumn,
+                                DataStartRow = horizontal.StartRow,
+                                Score = horizontalScore
+                            };
+                        }
+                    }
                     continue;
                 }
 
@@ -78,6 +96,7 @@ namespace ExcelCalibrationAddin.Host.Services
                 {
                     best = new ResultHeaderCandidate
                     {
+                        HeaderRow = cell.Row,
                         StartColumn = columnStart,
                         EndColumn = columnEnd,
                         DataStartRow = dataStartRow,
@@ -91,11 +110,18 @@ namespace ExcelCalibrationAddin.Host.Services
                 return null;
             }
 
+            var nextHeaderRow = sheet.Cells
+                .Where(item => item.Row > best.HeaderRow && item.Row <= searchEndRow &&
+                    item.Column >= best.StartColumn && item.Column <= best.EndColumn &&
+                    IsErrorHeaderForProject(item.Text, aliases))
+                .Select(item => item.Row)
+                .DefaultIfEmpty(endRow + 1)
+                .Min();
             return new CellRange
             {
                 SheetName = sheet.Name,
                 StartRow = best.DataStartRow,
-                EndRow = endRow,
+                EndRow = Math.Min(endRow, nextHeaderRow - 1),
                 StartColumn = best.StartColumn,
                 EndColumn = best.EndColumn
             };
@@ -142,8 +168,10 @@ namespace ExcelCalibrationAddin.Host.Services
             CellRange primaryErrorRange,
             CellRange primaryTechnicalRange,
             CellRange primaryResultRange,
+            out string pairingError,
             params CellRange[] occupiedRanges)
         {
+            pairingError = string.Empty;
             var occupied = new List<CellRange>(occupiedRanges ?? Array.Empty<CellRange>())
             {
                 primaryErrorRange,
@@ -151,21 +179,27 @@ namespace ExcelCalibrationAddin.Host.Services
                 primaryResultRange
             };
             var extraErrorRanges = CollectErrorRangesByProjectTitle(
-                    sheet,
-                    startRow,
-                    endRow,
-                    projectName,
-                    occupied.ToArray())
-                .Where(range => !RangesOverlap(range, primaryErrorRange))
+                sheet,
+                startRow,
+                endRow,
+                projectName,
+                primaryErrorRange)
+                .Where(range => !SameRange(range, primaryErrorRange))
+                .OrderBy(range => range.StartRow)
+                .ThenBy(range => range.StartColumn)
                 .ToList();
             extraErrorRanges.AddRange(CollectDataRanges(
-                    sheet,
-                    startRow,
-                    endRow,
-                    ErrorKeywords,
-                    occupied.Concat(extraErrorRanges).ToArray())
+                sheet,
+                startRow,
+                endRow,
+                ErrorKeywords,
+                new[] { primaryErrorRange }.Concat(extraErrorRanges).ToArray())
                 .Where(range => extraErrorRanges.All(existing => !RangesOverlap(existing, range)) &&
-                    !RangesOverlap(range, primaryErrorRange)));
+                    !SameRange(range, primaryErrorRange)));
+            extraErrorRanges = extraErrorRanges
+                .OrderBy(range => range.StartRow)
+                .ThenBy(range => range.StartColumn)
+                .ToList();
 
             var extraTechnicalRanges = CollectDataRanges(
                     sheet,
@@ -179,10 +213,12 @@ namespace ExcelCalibrationAddin.Host.Services
                     endRow,
                     TechnicalKeywords,
                     occupied.Concat(extraErrorRanges).ToArray()))
-                .Where(range => !RangesOverlap(range, primaryTechnicalRange) &&
-                    occupied.Concat(extraErrorRanges).All(existing => !RangesOverlap(existing, range)))
+                .Where(range => !SameRange(range, primaryTechnicalRange) &&
+                    occupied.Concat(extraErrorRanges).All(existing => !SameRange(existing, range)))
                 .GroupBy(RangeKey)
                 .Select(group => group.First())
+                .OrderBy(range => range.StartRow)
+                .ThenBy(range => range.StartColumn)
                 .ToList();
             var extraResultRanges = CollectDataRanges(
                     sheet,
@@ -196,18 +232,36 @@ namespace ExcelCalibrationAddin.Host.Services
                     endRow,
                     ResultKeywords,
                     occupied.Concat(extraErrorRanges).Concat(extraTechnicalRanges).ToArray()))
-                .Where(range => !RangesOverlap(range, primaryResultRange))
+                .Where(range => !SameRange(range, primaryResultRange))
                 .GroupBy(RangeKey)
                 .Select(group => group.First())
                 .ToList();
+
+            var pairedTechnicalRanges = PairRelatedRanges(extraErrorRanges, extraTechnicalRanges, out var technicalPairingError);
+            var pairedResultRanges = PairRelatedRanges(extraErrorRanges, extraResultRanges, out var resultPairingError);
+            var errors = new List<string>();
+            var totalErrorRanges = (primaryErrorRange == null ? 0 : 1) + extraErrorRanges.Count;
+            var totalTechnicalRanges = (primaryTechnicalRange == null ? 0 : 1) + extraTechnicalRanges.Count;
+            var totalResultRanges = (primaryResultRange == null ? 0 : 1) + extraResultRanges.Count;
+            if (totalErrorRanges != totalTechnicalRanges)
+            {
+                errors.Add($"同一校准项内误差区域({totalErrorRanges})与技术要求/MPE区域({totalTechnicalRanges})数量不一致");
+            }
+            if (!string.IsNullOrWhiteSpace(technicalPairingError)) errors.Add(technicalPairingError);
+            if (!string.IsNullOrWhiteSpace(resultPairingError)) errors.Add(resultPairingError);
+            if (totalResultRanges > 1 && totalResultRanges != totalErrorRanges)
+            {
+                errors.Add($"同一校准项内结论区域({totalResultRanges})与误差区域({totalErrorRanges})数量不一致");
+            }
+            pairingError = string.Join("；", errors.Distinct(StringComparer.Ordinal));
 
             var count = Math.Max(extraErrorRanges.Count, Math.Max(extraTechnicalRanges.Count, extraResultRanges.Count));
             var constraints = new List<MeasurementJudgementConstraint>();
             for (var index = 0; index < count; index++)
             {
                 var errorRange = index < extraErrorRanges.Count ? extraErrorRanges[index] : null;
-                var technicalRange = index < extraTechnicalRanges.Count ? extraTechnicalRanges[index] : null;
-                var resultRange = index < extraResultRanges.Count ? extraResultRanges[index] : null;
+                var technicalRange = index < pairedTechnicalRanges.Count ? pairedTechnicalRanges[index] : null;
+                var resultRange = index < pairedResultRanges.Count ? pairedResultRanges[index] : null;
                 if (errorRange == null && technicalRange == null && resultRange == null)
                 {
                     continue;
@@ -223,6 +277,74 @@ namespace ExcelCalibrationAddin.Host.Services
             }
 
             return constraints;
+        }
+
+        /// <summary>
+        /// Pair related columns/rows by shared axis first and physical distance
+        /// second. This works for the usual horizontal layout (same rows) and
+        /// for vertically stacked judgement rows (same columns), while exposing
+        /// ties instead of silently choosing one MPE.
+        /// </summary>
+        private static List<CellRange> PairRelatedRanges(
+            IReadOnlyList<CellRange> anchors,
+            IReadOnlyList<CellRange> candidates,
+            out string pairingError)
+        {
+            pairingError = string.Empty;
+            var result = new List<CellRange>();
+            var used = new HashSet<int>();
+            for (var anchorIndex = 0; anchorIndex < (anchors?.Count ?? 0); anchorIndex++)
+            {
+                var anchor = anchors[anchorIndex];
+                var ranked = (candidates ?? Array.Empty<CellRange>())
+                    .Select((candidate, index) => new { candidate, index, score = RangePairScore(anchor, candidate) })
+                    .Where(item => item.candidate != null && !used.Contains(item.index))
+                    .OrderByDescending(item => item.score)
+                    .ThenBy(item => item.index)
+                    .ToList();
+                if (ranked.Count == 0)
+                {
+                    continue;
+                }
+
+                var best = ranked[0];
+                var tied = ranked.Skip(1).Any(item => Math.Abs(item.score - best.score) < 0.0001);
+                if (tied)
+                {
+                    pairingError = "误差与技术要求/MPE区域存在无法消除的配对歧义";
+                    continue;
+                }
+
+                used.Add(best.index);
+                result.Add(best.candidate);
+            }
+
+            // Preserve candidate count/order for an explicit count mismatch
+            // diagnostic. Unpaired candidates remain visible as null slots in
+            // the constraint list created by the caller.
+            for (var index = 0; index < (candidates?.Count ?? 0); index++)
+            {
+                if (!used.Contains(index)) result.Add(candidates[index]);
+            }
+            return result;
+        }
+
+        private static double RangePairScore(CellRange left, CellRange right)
+        {
+            if (left == null || right == null) return double.MinValue;
+            var rowOverlap = Math.Max(0, Math.Min(left.EndRow, right.EndRow) - Math.Max(left.StartRow, right.StartRow) + 1);
+            var columnOverlap = Math.Max(0, Math.Min(left.EndColumn, right.EndColumn) - Math.Max(left.StartColumn, right.StartColumn) + 1);
+            var rowDistance = Math.Abs(((left.StartRow + left.EndRow) / 2.0) - ((right.StartRow + right.EndRow) / 2.0));
+            var columnDistance = Math.Abs(((left.StartColumn + left.EndColumn) / 2.0) - ((right.StartColumn + right.EndColumn) / 2.0));
+            return rowOverlap * 100000d + columnOverlap * 100000d - rowDistance * 10d - columnDistance;
+        }
+
+        private static bool SameRange(CellRange left, CellRange right)
+        {
+            return left != null && right != null &&
+                string.Equals(left.SheetName, right.SheetName, StringComparison.OrdinalIgnoreCase) &&
+                left.StartRow == right.StartRow && left.EndRow == right.EndRow &&
+                left.StartColumn == right.StartColumn && left.EndColumn == right.EndColumn;
         }
 
         private static List<CellRange> CollectErrorRangesByProjectTitle(
@@ -251,14 +373,15 @@ namespace ExcelCalibrationAddin.Host.Services
                     item.Row <= searchEndRow &&
                     !string.IsNullOrWhiteSpace(item.Text) &&
                     !LooksLikeSectionTitle(item.Text) &&
+                    !(item.Row == startRow && string.Equals(NormalizeHeaderText(item.Text), NormalizeHeaderText(projectName), StringComparison.OrdinalIgnoreCase)) &&
                     IsErrorHeaderForProject(item.Text, aliases))
                 .OrderBy(item => item.Row)
                 .ThenBy(item => item.Column))
             {
                 var columnStart = cell.MergeRange?.StartColumn ?? cell.Column;
                 var columnEnd = cell.MergeRange?.EndColumn ?? cell.Column;
-                if (excludedRanges.Any(range => IsColumnRangeOverlap(columnStart, columnEnd, range)) ||
-                    candidates.Any(existing => columnStart <= existing.EndColumn && existing.StartColumn <= columnEnd))
+                if (excludedRanges.Any(range => IsColumnRangeOverlap(columnStart, columnEnd, range) &&
+                    cell.Row < range.StartRow))
                 {
                     continue;
                 }
@@ -269,6 +392,18 @@ namespace ExcelCalibrationAddin.Host.Services
                     ?? FindFirstDataRow(sheet, candidateDataStartRow, endRow, columnStart, columnEnd);
                 if (dataStartRow <= 0)
                 {
+                    var horizontal = BuildHorizontalDataRangeFromHeader(sheet, startRow, endRow, cell, columnStart, columnEnd);
+                    if (horizontal != null)
+                    {
+                        candidates.Add(new ResultHeaderCandidate
+                        {
+                            HeaderRow = cell.Row,
+                            StartColumn = horizontal.StartColumn,
+                            EndColumn = horizontal.EndColumn,
+                            DataStartRow = horizontal.StartRow,
+                            Score = ScoreErrorHeader(cell.Text, aliases) + CountFormulaCells(sheet, horizontal.StartRow, horizontal.EndRow, horizontal.StartColumn, horizontal.EndColumn) * 10
+                        });
+                    }
                     continue;
                 }
 
@@ -276,6 +411,7 @@ namespace ExcelCalibrationAddin.Host.Services
                 var dataCount = CountDataCells(sheet, dataStartRow, endRow, columnStart, columnEnd);
                 candidates.Add(new ResultHeaderCandidate
                 {
+                    HeaderRow = cell.Row,
                     StartColumn = columnStart,
                     EndColumn = columnEnd,
                     DataStartRow = dataStartRow,
@@ -289,7 +425,13 @@ namespace ExcelCalibrationAddin.Host.Services
                 {
                     SheetName = sheet.Name,
                     StartRow = item.DataStartRow,
-                    EndRow = endRow,
+                    EndRow = candidates
+                        .Where(next => next.HeaderRow > item.HeaderRow &&
+                                       next.StartColumn <= item.EndColumn &&
+                                       item.StartColumn <= next.EndColumn)
+                        .Select(next => next.HeaderRow - 1)
+                        .DefaultIfEmpty(endRow)
+                        .Min(),
                     StartColumn = item.StartColumn,
                     EndColumn = item.EndColumn
                 })
@@ -309,6 +451,7 @@ namespace ExcelCalibrationAddin.Host.Services
                     cell.Row <= Math.Min(endRow, startRow + 6) &&
                     !string.IsNullOrWhiteSpace(cell.Text) &&
                     !LooksLikeSectionTitle(cell.Text) &&
+                    !(keywords == ErrorKeywords && cell.Row == startRow) &&
                     !LooksLikeWrongFieldHeader(cell.Text, keywords) &&
                     keywords.Any(keyword => MatchesKeyword(cell.Text, keyword)))
                 .OrderBy(cell => cell.Row)
@@ -319,8 +462,10 @@ namespace ExcelCalibrationAddin.Host.Services
             {
                 var columnStart = candidate.MergeRange?.StartColumn ?? candidate.Column;
                 var columnEnd = candidate.MergeRange?.EndColumn ?? candidate.Column;
-                if (excludedRanges.Any(range => IsColumnRangeOverlap(columnStart, columnEnd, range)) ||
-                    ranges.Any(range => IsColumnRangeOverlap(columnStart, columnEnd, range)))
+                if (excludedRanges.Any(range => IsColumnRangeOverlap(columnStart, columnEnd, range) &&
+                                                candidate.Row < range.StartRow) ||
+                    ranges.Any(range => IsColumnRangeOverlap(columnStart, columnEnd, range) &&
+                                        candidate.Row < range.StartRow))
                 {
                     continue;
                 }
@@ -333,6 +478,71 @@ namespace ExcelCalibrationAddin.Host.Services
             }
 
             return ranges;
+        }
+
+        private static CellRange BuildHorizontalDataRangeFromHeader(
+            SheetSnapshot sheet,
+            int startRow,
+            int endRow,
+            CellMeta header,
+            int headerStartColumn,
+            int headerEndColumn)
+        {
+            if (sheet == null || header == null)
+            {
+                return null;
+            }
+
+            var maxColumn = InferMaxColumn(sheet);
+            var dataStartColumn = 0;
+            var dataEndColumn = 0;
+            var rowStart = Math.Max(startRow, header.MergeRange?.StartRow ?? header.Row);
+            var rowEnd = Math.Min(endRow, Math.Max(rowStart, header.MergeRange?.EndRow ?? header.Row));
+            for (var column = headerEndColumn + 1; column <= maxColumn; column++)
+            {
+                var hasData = sheet.Cells.Any(cell =>
+                    cell.Column == column &&
+                    cell.Row >= rowStart &&
+                    cell.Row <= rowEnd &&
+                    (SheetRowContentAnalyzer.LooksNumeric(cell.Text) || !string.IsNullOrWhiteSpace(cell.Formula)));
+                if (!hasData)
+                {
+                    if (dataStartColumn > 0) break;
+                    continue;
+                }
+
+                if (dataStartColumn == 0) dataStartColumn = column;
+                dataEndColumn = column;
+            }
+
+            if (dataStartColumn <= 0 || dataEndColumn < dataStartColumn)
+            {
+                return null;
+            }
+
+            // Horizontal blocks usually keep one logical row per field. If the
+            // first populated row is below a merged header, include that row.
+            var populatedRows = sheet.Cells
+                .Where(cell => cell.Column >= dataStartColumn && cell.Column <= dataEndColumn &&
+                              cell.Row >= rowStart && cell.Row <= rowEnd &&
+                              (SheetRowContentAnalyzer.LooksNumeric(cell.Text) || !string.IsNullOrWhiteSpace(cell.Formula)))
+                .Select(cell => cell.Row)
+                .Distinct()
+                .OrderBy(value => value)
+                .ToList();
+            if (populatedRows.Count == 0)
+            {
+                return null;
+            }
+
+            return new CellRange
+            {
+                SheetName = sheet.Name,
+                StartRow = populatedRows.First(),
+                EndRow = populatedRows.Last(),
+                StartColumn = dataStartColumn,
+                EndColumn = dataEndColumn
+            };
         }
 
         private static List<CellRange> CollectLayoutRanges(
@@ -395,6 +605,16 @@ namespace ExcelCalibrationAddin.Host.Services
                 endRow,
                 effectiveRange.StartColumn,
                 effectiveRange.EndColumn);
+            if (dataStartRow <= 0)
+            {
+                var horizontal = BuildHorizontalDataRangeFromHeader(sheet, startRow, endRow, candidate,
+                    selectedHeader.StartColumn, selectedHeader.EndColumn);
+                if (horizontal != null)
+                {
+                    return horizontal;
+                }
+            }
+
             if (dataStartRow <= 0 && !HasSufficientDataBelow(
                 sheet,
                 effectiveRange.HeaderBottomRow,

@@ -35,11 +35,21 @@ namespace ExcelCalibrationAddin.Host.Recognition
                 .ToDictionary(group => group.Key, group => group.OrderBy(cell => cell.Column).ToList());
             var usesMaximumError = ErrorFormulaClassifier.IsMaximumError(rule);
             var result = new List<MeasurementRowMapping>();
-            foreach (var row in measurementCells.Keys.OrderBy(value => value))
+            var orderedRows = measurementCells.Keys.OrderBy(value => value).ToList();
+            for (var rowIndex = 0; rowIndex < orderedRows.Count; rowIndex++)
             {
+                var row = orderedRows[rowIndex];
                 var mapping = new MeasurementRowMapping
                 {
                     Row = row,
+                    RowOrdinal = rowIndex + 1,
+                    StandardValueOrdinal = rowIndex + 1,
+                    AssociationKey = string.Join("|", new[]
+                    {
+                        rule.FieldName ?? string.Empty,
+                        rule.BlockOrdinal?.ToString() ?? string.Empty,
+                        (rowIndex + 1).ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    }),
                     SetpointValueRange = ResolveRangeForRow(sheet, rule.SetpointSource?.Range, row),
                     StandardValueRange = ResolveRangeForRow(sheet, rule.StandardValueSource?.Range, row),
                     MeasurementCells = measurementCells[row],
@@ -67,6 +77,11 @@ namespace ExcelCalibrationAddin.Host.Recognition
                         .ToList()
                 };
                 var missing = BuildMissingFields(mapping, usesMaximumError);
+                if (!string.IsNullOrWhiteSpace(rule.RecognitionError))
+                {
+                    missing.Add(rule.RecognitionError);
+                }
+                mapping.RecognitionError = rule.RecognitionError ?? string.Empty;
                 mapping.IsComplete = missing.Count == 0;
                 mapping.StatusMessage = mapping.IsComplete
                     ? "行级映射完整"
@@ -124,6 +139,11 @@ namespace ExcelCalibrationAddin.Host.Recognition
             if (mapping.MeasurementCells.Count == 0) missing.Add("测量值");
             if (!usesMaximumError && mapping.ErrorRange == null) missing.Add("误差");
             if (mapping.TechnicalRequirementRange == null) missing.Add("技术要求");
+            foreach (var constraint in mapping.AdditionalJudgementConstraints ?? new List<MeasurementJudgementConstraint>())
+            {
+                if (constraint == null || constraint.ErrorSource?.Range == null) missing.Add("附属误差");
+                if (constraint == null || constraint.MpeSource?.Range == null) missing.Add("附属技术要求/MPE");
+            }
             return missing;
         }
 

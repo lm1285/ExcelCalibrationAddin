@@ -71,7 +71,7 @@ namespace ExcelCalibrationAddin.Host.UseCases
                     rule.FixedMpe.Value > 0;
             }
 
-            if (GenerationRuleValidator.IsRepeatabilityRule(rule))
+            if (GenerationRuleValidator.IsRepeatabilityGenerationRule(rule))
             {
                 return rule != null &&
                     GenerationRuleValidator.HasValidRange(rule.TargetRange) &&
@@ -151,6 +151,7 @@ namespace ExcelCalibrationAddin.Host.UseCases
 
             foreach (var rule in normalizedRules)
             {
+                ValidateResolvedRows(rule, snapshot);
                 var preview = GeneratePreview(rule, snapshot, session);
                 previews.Add(preview);
             }
@@ -165,11 +166,28 @@ namespace ExcelCalibrationAddin.Host.UseCases
 
             foreach (var rule in normalizedRules)
             {
+                ValidateResolvedRows(rule, snapshot);
                 var preview = GeneratePreResolvedPreview(rule, snapshot, session);
                 previews.Add(preview);
             }
 
             return previews;
+        }
+
+        private void ValidateResolvedRows(MeasurementRule rule, WorkbookSnapshot snapshot)
+        {
+            if (_rowRuleResolver == null || snapshot == null || rule == null)
+            {
+                return;
+            }
+
+            var rows = _rowRuleResolver.Resolve(snapshot, rule);
+            var invalid = rows.FirstOrDefault(item => item != null && !item.IsValid);
+            if (invalid != null)
+            {
+                throw new InvalidOperationException(
+                    $"“{GenerationRuleValidator.ResolveRuleName(rule)}”第 {invalid.Row} 行无法建立当前行生成规则：{invalid.FailureReason}");
+            }
         }
 
         private RulePreview GeneratePreResolvedPreview(MeasurementRule rule, WorkbookSnapshot snapshot, MeasurementGenerationSession session)
@@ -202,10 +220,10 @@ namespace ExcelCalibrationAddin.Host.UseCases
             if (GenerationRuleValidator.IsUpperLimitRule(rule))
             {
                 GenerationRuleValidator.ValidateUpperLimitRule(rule, writableCellCount, writableFailureReason);
-                return GenerateUpperLimitPreview(rule, writableCells);
+                return GenerateUpperLimitPreview(rule, writableCells, session);
             }
 
-            if (GenerationRuleValidator.IsRepeatabilityRule(rule))
+            if (GenerationRuleValidator.IsRepeatabilityGenerationRule(rule))
             {
                 GenerationRuleValidator.ValidateRepeatabilityRule(rule, writableCellCount, writableFailureReason);
                 var preview = GenerateRepeatabilityPreview(rule, writableCells, session);
@@ -243,7 +261,7 @@ namespace ExcelCalibrationAddin.Host.UseCases
             var standardValue = ResolveStandardValue(rule);
             var toleranceRatio = MeasurementSeriesGenerator.ResolveRepeatabilityTolerance(rule.FixedMpe.Value);
             var decimalPlacesByValue = ResolveDecimalPlaces(session, rule, writableCells);
-            var decimalPlaces = decimalPlacesByValue.DefaultIfEmpty(rule.FormatRule?.DecimalPlaces ?? 2).Min();
+            var decimalPlaces = decimalPlacesByValue.DefaultIfEmpty(1).Min();
             var errorDecimalPlaces = ResolveErrorDecimalPlaces(session, rule);
             var minimumVisibleSpread = ResolveMinimumVisibleRepeatabilitySpread(
                 rule,
@@ -379,10 +397,13 @@ namespace ExcelCalibrationAddin.Host.UseCases
 
         private RulePreview GenerateUpperLimitPreview(
             MeasurementRule rule,
-            IReadOnlyList<CellAddress> writableCells)
+            IReadOnlyList<CellAddress> writableCells,
+            MeasurementGenerationSession session)
         {
             var upperLimit = Math.Abs(rule.FixedMpe.GetValueOrDefault());
-            var decimalPlaces = rule.FormatRule?.DecimalPlaces ?? 2;
+            var decimalPlaces = ResolveDecimalPlaces(session, rule, writableCells)
+                .DefaultIfEmpty(1)
+                .Min();
             var orderedCells = (writableCells ?? Array.Empty<CellAddress>())
                 .OrderBy(cell => cell.Row)
                 .ThenBy(cell => cell.Column)

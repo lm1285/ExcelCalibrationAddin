@@ -63,6 +63,7 @@ namespace ExcelCalibrationAddin.Host.Controllers
             {
                 mappings = _draftBuilder.BuildMappings(result.Recognition);
                 var currentLayoutRules = _draftBuilder.BuildDraftRules(result.Recognition, mappings);
+                matchedRules = ResolveLocalSubsetMatch(result, currentLayoutRules, matchedRules);
                 draftRules = matchedRules != null && matchedRules.Count > 0
                     ? RebaseRulesToCurrentLayout(matchedRules, currentLayoutRules)
                     : new List<MeasurementRule>();
@@ -133,6 +134,11 @@ namespace ExcelCalibrationAddin.Host.Controllers
                 {
                     ProjectName = rule.FieldAlias ?? rule.FieldName,
                     SectionRange = CloneRange(rule.TemplateDefinition?.SectionRange),
+                    BlockOrdinal = rule.BlockOrdinal,
+                    BlockRuleOrdinal = rule.BlockRuleOrdinal,
+                    BlockRange = CloneRange(rule.BlockRange),
+                    BlockStructureSignature = rule.BlockStructureSignature,
+                    BlockItemStructureSignature = rule.BlockItemStructureSignature,
                     SetpointValueRange = CloneRange(rule.SetpointSource?.Range),
                     StandardValueRange = CloneRange(rule.StandardValueSource?.Range),
                     MeasurementValueRange = CloneRange(rule.TargetRange),
@@ -142,7 +148,8 @@ namespace ExcelCalibrationAddin.Host.Controllers
                     RangeValueRange = CloneRange(rule.RangeSource?.Range),
                     UncertaintyRange = CloneRange(rule.UncertaintySource?.Range),
                     ResultRange = CloneRange(rule.ResultSource?.Range),
-                    AdditionalJudgementConstraints = CloneJudgementConstraints(rule.AdditionalJudgementConstraints)
+                    AdditionalJudgementConstraints = CloneJudgementConstraints(rule.AdditionalJudgementConstraints),
+                    RecognitionError = rule.RecognitionError
                 })
                 .ToList();
         }
@@ -163,6 +170,10 @@ namespace ExcelCalibrationAddin.Host.Controllers
 
             var mappings = _draftBuilder.BuildMappings(result.Recognition);
             var currentLayoutRules = _draftBuilder.BuildDraftRules(result.Recognition, mappings);
+            if (!forceDraftRules)
+            {
+                matchedRules = ResolveLocalSubsetMatch(result, currentLayoutRules, matchedRules);
+            }
             var draftRules = matchedRules != null && matchedRules.Count > 0
                 ? RebaseRulesToCurrentLayout(matchedRules, currentLayoutRules)
                 : currentLayoutRules;
@@ -191,6 +202,88 @@ namespace ExcelCalibrationAddin.Host.Controllers
                 local.Rules.Count > 0;
         }
 
+        private static IReadOnlyList<MeasurementRule> SelectOrderedSubsetRules(
+            IReadOnlyList<MeasurementRule> currentRules,
+            IReadOnlyList<MeasurementRule> savedRules)
+        {
+            if ((currentRules ?? Array.Empty<MeasurementRule>()).Any(rule => rule.BlockOrdinal.HasValue) &&
+                (savedRules ?? Array.Empty<MeasurementRule>()).Any(rule => rule?.BlockOrdinal.HasValue == true))
+            {
+                var currentBlocks = currentRules.GroupBy(rule => rule.BlockOrdinal.Value).OrderBy(group => group.Key).ToList();
+                var savedBlocks = savedRules.GroupBy(rule => rule.BlockOrdinal.Value).OrderBy(group => group.Key).ToList();
+                if (currentBlocks.Count == 0 || savedBlocks.Count < currentBlocks.Count) return new List<MeasurementRule>();
+                var expectedPattern = currentBlocks[0].Select(rule => rule.BlockItemStructureSignature).ToArray();
+                if (currentBlocks.Any(block => !block.Select(rule => rule.BlockItemStructureSignature).SequenceEqual(expectedPattern, StringComparer.Ordinal)))
+                    return new List<MeasurementRule>();
+                for (var offset = 0; offset <= savedBlocks.Count - currentBlocks.Count; offset++)
+                {
+                    var window = savedBlocks.Skip(offset).Take(currentBlocks.Count).ToList();
+                    var result = new List<MeasurementRule>();
+                    int[] selectedPositions = null;
+                    var compatible = true;
+                    for (var blockIndex = 0; blockIndex < window.Count; blockIndex++)
+                    {
+                        var savedBlock = window[blockIndex].ToList();
+                        var savedRuleIndex = 0;
+                        var selectedBlockRules = new List<MeasurementRule>();
+                        foreach (var currentRule in currentBlocks[blockIndex])
+                        {
+                            var found = -1;
+                            for (var savedScanIndex = savedRuleIndex; savedScanIndex < savedBlock.Count; savedScanIndex++)
+                            {
+                                if (!string.Equals(currentRule.BlockItemStructureSignature,
+                                        savedBlock[savedScanIndex].BlockItemStructureSignature, StringComparison.Ordinal)) continue;
+                                found = savedScanIndex;
+                                break;
+                            }
+                            if (found < 0) { compatible = false; break; }
+                            selectedBlockRules.Add(savedBlock[found]);
+                            savedRuleIndex = found + 1;
+                        }
+                        if (!compatible) break;
+                        var positions = selectedBlockRules.Select(rule => rule.BlockRuleOrdinal.Value).ToArray();
+                        if (selectedPositions != null && !selectedPositions.SequenceEqual(positions)) { compatible = false; break; }
+                        selectedPositions = positions;
+                        result.AddRange(selectedBlockRules);
+                    }
+                    if (compatible) return result;
+                }
+                return new List<MeasurementRule>();
+            }
+
+            var selected = new List<MeasurementRule>();
+            var index = 0;
+            foreach (var current in currentRules ?? Array.Empty<MeasurementRule>())
+            {
+                while (index < (savedRules?.Count ?? 0) &&
+                    !SameRuleName(current, savedRules[index]))
+                {
+                    index++;
+                }
+                if (index >= (savedRules?.Count ?? 0)) return new List<MeasurementRule>();
+                selected.Add(savedRules[index]);
+                index++;
+            }
+            return selected;
+        }
+
+        private IReadOnlyList<MeasurementRule> ResolveLocalSubsetMatch(
+            RecognitionAndSyncResult result,
+            IReadOnlyList<MeasurementRule> currentRules,
+            IReadOnlyList<MeasurementRule> existingRules)
+        {
+            if (result == null || currentRules == null || currentRules.Count == 0 ||
+                IsStrongEnabledLocalMatch(result.Local))
+            {
+                return existingRules;
+            }
+
+            result.Local = _orchestrator.MatchLocalSubset(currentRules);
+            return IsStrongEnabledLocalMatch(result.Local)
+                ? SelectOrderedSubsetRules(currentRules, result.Local.Rules)
+                : existingRules;
+        }
+
         private static MeasurementRule CloneRule(MeasurementRule rule)
         {
             if (rule == null)
@@ -202,6 +295,11 @@ namespace ExcelCalibrationAddin.Host.Controllers
             {
                 FieldName = rule.FieldName,
                 FieldAlias = rule.FieldAlias,
+                BlockOrdinal = rule.BlockOrdinal,
+                BlockRuleOrdinal = rule.BlockRuleOrdinal,
+                BlockRange = CloneRange(rule.BlockRange),
+                BlockStructureSignature = rule.BlockStructureSignature,
+                BlockItemStructureSignature = rule.BlockItemStructureSignature,
                 TargetRange = CloneRange(rule.TargetRange),
                 ErrorType = rule.ErrorType,
                 FillMode = rule.FillMode,
@@ -236,6 +334,7 @@ namespace ExcelCalibrationAddin.Host.Controllers
                 GenerationCoefficientOverride = CloneCoefficientOverride(rule.GenerationCoefficientOverride),
                 ErrorFormula = CloneErrorFormula(rule.ErrorFormula),
                 AdditionalJudgementConstraints = CloneJudgementConstraints(rule.AdditionalJudgementConstraints),
+                RecognitionError = rule.RecognitionError,
                 TemplateDefinition = TemplateDefinitionCloner.Clone(rule.TemplateDefinition)
             };
         }
@@ -244,6 +343,15 @@ namespace ExcelCalibrationAddin.Host.Controllers
             IReadOnlyList<MeasurementRule> savedRules,
             IReadOnlyList<MeasurementRule> currentLayoutRules)
         {
+            var saved = savedRules ?? Array.Empty<MeasurementRule>();
+            var current = currentLayoutRules ?? Array.Empty<MeasurementRule>();
+            if (saved.Count == current.Count && saved.Count > 0 &&
+                saved.All(rule => rule.BlockOrdinal.HasValue && rule.BlockRuleOrdinal.HasValue) &&
+                current.All(rule => rule.BlockOrdinal.HasValue && rule.BlockRuleOrdinal.HasValue))
+            {
+                return saved.Select((savedRule, index) => RebaseRuleToCurrentLayout(savedRule, current[index])).ToList();
+            }
+
             return (savedRules ?? Enumerable.Empty<MeasurementRule>())
                 .Where(rule => rule != null)
                 .Select(savedRule => RebaseRuleToCurrentLayout(
@@ -285,6 +393,11 @@ namespace ExcelCalibrationAddin.Host.Controllers
             var rule = CloneRule(savedRule);
 
             rule.TargetRange = CloneRange(currentLayoutRule.TargetRange);
+            rule.BlockOrdinal = currentLayoutRule.BlockOrdinal;
+            rule.BlockRuleOrdinal = currentLayoutRule.BlockRuleOrdinal;
+            rule.BlockRange = CloneRange(currentLayoutRule.BlockRange);
+            rule.BlockStructureSignature = currentLayoutRule.BlockStructureSignature;
+            rule.BlockItemStructureSignature = currentLayoutRule.BlockItemStructureSignature;
             rule.SetpointSource = BuildParameterSource(rule.SetpointSource, currentLayoutRule.SetpointSource?.Range);
             rule.StandardValueSource = BuildParameterSource(rule.StandardValueSource, currentLayoutRule.StandardValueSource?.Range);
             rule.AverageSource = BuildParameterSource(rule.AverageSource, currentLayoutRule.AverageSource?.Range);
@@ -294,6 +407,7 @@ namespace ExcelCalibrationAddin.Host.Controllers
             rule.UncertaintySource = BuildParameterSource(rule.UncertaintySource, currentLayoutRule.UncertaintySource?.Range);
             rule.ResultSource = BuildParameterSource(rule.ResultSource, currentLayoutRule.ResultSource?.Range);
             rule.AdditionalJudgementConstraints = CloneJudgementConstraints(currentLayoutRule.AdditionalJudgementConstraints);
+            rule.RecognitionError = currentLayoutRule.RecognitionError;
             rule.WritableCells = CloneCellAddresses(currentLayoutRule.WritableCells);
             rule.GroupSize = currentLayoutRule.GroupSize;
             rule.TemplateDefinition = TemplateDefinitionCloner.Clone(currentLayoutRule.TemplateDefinition);
@@ -534,6 +648,10 @@ namespace ExcelCalibrationAddin.Host.Controllers
                 .Select(item => new MeasurementRowMapping
                 {
                     Row = item.Row,
+                    RowOrdinal = item.RowOrdinal,
+                    StandardValueOrdinal = item.StandardValueOrdinal,
+                    RepeatMeasurementOrdinal = item.RepeatMeasurementOrdinal,
+                    AssociationKey = item.AssociationKey,
                     SetpointValueRange = CloneRange(item.SetpointValueRange),
                     StandardValueRange = CloneRange(item.StandardValueRange),
                     MeasurementCells = CloneCellAddresses(item.MeasurementCells),
@@ -544,7 +662,8 @@ namespace ExcelCalibrationAddin.Host.Controllers
                     UncertaintyRange = CloneRange(item.UncertaintyRange),
                     ResultRange = CloneRange(item.ResultRange),
                     IsComplete = item.IsComplete,
-                    StatusMessage = item.StatusMessage
+                    StatusMessage = item.StatusMessage,
+                    RecognitionError = item.RecognitionError
                 })
                 .ToList();
         }

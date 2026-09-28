@@ -45,6 +45,27 @@ namespace ExcelCalibrationAddin.Host.Generation
             return ContainsRuleName(rule, "重复性");
         }
 
+        public static bool IsRepeatabilityGenerationRule(MeasurementRule rule)
+        {
+            if (!IsRepeatabilityRule(rule))
+            {
+                return false;
+            }
+
+            var formula = rule.ErrorFormula?.Formula;
+            if (string.IsNullOrWhiteSpace(formula))
+            {
+                return true;
+            }
+
+            // A combined item can mention repeatability in its title while its
+            // primary formula calculates a different quantity (for example,
+            // indication error). Use the dedicated repeatability generator only
+            // when the primary formula itself computes a spread/dispersion metric.
+            return Regex.IsMatch(formula, @"STDEV|VAR\s*\(|MAX\s*\([^)]*\)\s*-\s*MIN\s*\(",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        }
+
         private static bool ContainsRuleName(MeasurementRule rule, string keyword)
         {
             if (rule == null || string.IsNullOrWhiteSpace(keyword))
@@ -265,6 +286,12 @@ namespace ExcelCalibrationAddin.Host.Generation
 
         public static void ValidateFormulaDependencies(MeasurementRule rule)
         {
+            if (!string.IsNullOrWhiteSpace(rule?.RecognitionError))
+            {
+                throw new InvalidOperationException(
+                    $"“{ResolveRuleName(rule)}”模板识别失败：{rule.RecognitionError}。请修正误差/MPE布局后重新识别。");
+            }
+
             var unresolved = rule?.ErrorFormula?.UnresolvedDependencies?
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Distinct(StringComparer.OrdinalIgnoreCase)

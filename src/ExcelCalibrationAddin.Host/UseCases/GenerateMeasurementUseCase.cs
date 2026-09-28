@@ -18,6 +18,22 @@ namespace ExcelCalibrationAddin.Host.UseCases
         void Write(CellRange range, IReadOnlyList<CellAddress> writableCells, IReadOnlyList<string> values);
     }
 
+    /// <summary>
+    /// Optional transaction capability for writers backed by Excel.  Preview
+    /// generation remains usable with legacy writers, while an implementing
+    /// writer can guarantee calibration-item atomicity and restore state on
+    /// every exception/cancellation.
+    /// </summary>
+    public interface ITransactionalWorkbookWriter : IWorkbookWriter
+    {
+        IWorkbookWriteTransaction BeginTransaction(IReadOnlyList<RulePreview> previews);
+    }
+
+    public interface IWorkbookWriteTransaction : IDisposable
+    {
+        void Commit();
+    }
+
     public sealed partial class GenerateMeasurementUseCase
     {
         private static readonly Regex NumberRegex = new Regex(@"[-+]?\d+(\.\d+)?([eE][-+]?\d+)?", RegexOptions.Compiled);
@@ -26,6 +42,7 @@ namespace ExcelCalibrationAddin.Host.UseCases
         private readonly IWorkbookSnapshotProvider _snapshotProvider;
         private readonly MeasurementRuleParameterResolver _parameterResolver;
         private readonly MeasurementRuleStructureAnalyzer _structureAnalyzer;
+        private readonly RowGenerationRuleResolver _rowRuleResolver;
         private readonly Func<GenerationConfiguration, MeasurementValueGenerator> _generatorFactory;
         private readonly GenerationConfigurationStore _configurationStore;
         private readonly MeasurementSeriesGenerator _seriesGenerator;
@@ -49,6 +66,7 @@ namespace ExcelCalibrationAddin.Host.UseCases
             _snapshotProvider = snapshotProvider;
             _parameterResolver = parameterResolver;
             _structureAnalyzer = new MeasurementRuleStructureAnalyzer();
+            _rowRuleResolver = new RowGenerationRuleResolver(_parameterResolver, _structureAnalyzer);
         }
 
         public void SetGenerationConfiguration(GenerationConfiguration configuration)
@@ -84,19 +102,28 @@ namespace ExcelCalibrationAddin.Host.UseCases
         private GenerationWriteResult WritePreviews(IReadOnlyList<RulePreview> previews)
         {
             var skippedWarnings = new List<string>();
-            foreach (var preview in previews ?? Array.Empty<RulePreview>())
+            var writablePreviews = (previews ?? Array.Empty<RulePreview>())
+                .Where(preview => preview != null && preview.DisplayValues != null && preview.DisplayValues.Count > 0)
+                .ToList();
+            var transactionWriter = _writer as ITransactionalWorkbookWriter;
+            using (var transaction = transactionWriter?.BeginTransaction(writablePreviews))
             {
-                if (preview == null || preview.DisplayValues == null || preview.DisplayValues.Count == 0)
+                foreach (var preview in previews ?? Array.Empty<RulePreview>())
                 {
-                    if (preview == null || preview.WarningMessages == null || preview.WarningMessages.Count == 0)
+                    if (preview == null || preview.DisplayValues == null || preview.DisplayValues.Count == 0)
                     {
-                        var ruleName = GenerationRuleValidator.ResolveRuleName(preview?.Rule);
-                        skippedWarnings.Add($"“{ruleName}”没有生成可写入的随机数，已跳过写入。请检查标准值是否为空。");
+                        if (preview == null || preview.WarningMessages == null || preview.WarningMessages.Count == 0)
+                        {
+                            var ruleName = GenerationRuleValidator.ResolveRuleName(preview?.Rule);
+                            skippedWarnings.Add($"“{ruleName}”没有生成可写入的随机数，已跳过写入。请检查标准值是否为空。");
+                        }
+                        continue;
                     }
-                    continue;
+
+                    _writer.Write(preview.TargetRange, preview.WritableCells, preview.DisplayValues);
                 }
 
-                _writer.Write(preview.TargetRange, preview.WritableCells, preview.DisplayValues);
+                transaction?.Commit();
             }
 
             var result = GenerationWriteResult.FromPreviews(previews);

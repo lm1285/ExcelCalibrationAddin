@@ -151,6 +151,11 @@ namespace ExcelCalibrationAddin.Contracts
     {
         public string FieldName { get; set; } = string.Empty;
         public string FieldAlias { get; set; } = string.Empty;
+        public int? BlockOrdinal { get; set; }
+        public int? BlockRuleOrdinal { get; set; }
+        public CellRange BlockRange { get; set; }
+        public string BlockStructureSignature { get; set; } = string.Empty;
+        public string BlockItemStructureSignature { get; set; } = string.Empty;
         public CellRange TargetRange { get; set; }
         public ErrorType ErrorType { get; set; }
         public FillMode FillMode { get; set; }
@@ -182,6 +187,10 @@ namespace ExcelCalibrationAddin.Contracts
         public MeasurementGenerationCoefficientOverride GenerationCoefficientOverride { get; set; }
         public ErrorFormulaInfo ErrorFormula { get; set; }
         public List<MeasurementJudgementConstraint> AdditionalJudgementConstraints { get; set; } = new List<MeasurementJudgementConstraint>();
+        // Recognition is considered unsuccessful when related error/MPE regions
+        // cannot be paired unambiguously. Keep the diagnostic with the rule so
+        // save, preview, generation, and the task pane all see the same state.
+        public string RecognitionError { get; set; } = string.Empty;
         public TemplateFieldDefinition TemplateDefinition { get; set; }
     }
 
@@ -195,6 +204,12 @@ namespace ExcelCalibrationAddin.Contracts
     public sealed class MeasurementRowMapping
     {
         public int Row { get; set; }
+        // Row relationship metadata is structural.  It is intentionally
+        // independent of the values/formulas currently present in Excel.
+        public int? RowOrdinal { get; set; }
+        public int? StandardValueOrdinal { get; set; }
+        public int? RepeatMeasurementOrdinal { get; set; }
+        public string AssociationKey { get; set; } = string.Empty;
         public CellRange SetpointValueRange { get; set; }
         public CellRange StandardValueRange { get; set; }
         public List<CellAddress> MeasurementCells { get; set; } = new List<CellAddress>();
@@ -207,6 +222,44 @@ namespace ExcelCalibrationAddin.Contracts
         public List<MeasurementJudgementConstraint> AdditionalJudgementConstraints { get; set; } = new List<MeasurementJudgementConstraint>();
         public bool IsComplete { get; set; }
         public string StatusMessage { get; set; } = string.Empty;
+        public string RecognitionError { get; set; } = string.Empty;
+    }
+
+    /// <summary>Current workbook data captured for one mapped row.</summary>
+    public sealed class RowGenerationContext
+    {
+        public string SheetName { get; set; } = string.Empty;
+        public int Row { get; set; }
+        public MeasurementRowMapping Mapping { get; set; }
+        public List<CellMeta> TargetCells { get; set; } = new List<CellMeta>();
+        public CellMeta StandardValueCell { get; set; }
+        public CellMeta AverageCell { get; set; }
+        public CellMeta ErrorCell { get; set; }
+        public CellMeta RequirementCell { get; set; }
+        public List<CellMeta> DependencyCells { get; set; } = new List<CellMeta>();
+        public string FormulaFingerprint { get; set; } = string.Empty;
+        public bool CalculationIsCurrent { get; set; } = true;
+    }
+
+    /// <summary>Immutable-by-convention row rule consumed by generation/validation.</summary>
+    public sealed class ResolvedRowRule
+    {
+        public int Row { get; set; }
+        public List<CellAddress> MeasurementCells { get; set; } = new List<CellAddress>();
+        public double? StandardValue { get; set; }
+        public ErrorType ErrorType { get; set; }
+        public ErrorFormulaInfo ErrorFormula { get; set; }
+        public double? NegativeTolerance { get; set; }
+        public double? PositiveTolerance { get; set; }
+        public TechnicalRequirementOperator RequirementOperator { get; set; }
+        public double? ReferenceRange { get; set; }
+        public FormatRule MeasurementFormat { get; set; } = new FormatRule();
+        public string PrecisionSource { get; set; } = string.Empty;
+        public string Unit { get; set; } = string.Empty;
+        public bool RequiresExcelEvaluation { get; set; }
+        public bool IsValid { get; set; }
+        public string FailureReason { get; set; } = string.Empty;
+        public string AssociationKey { get; set; } = string.Empty;
     }
 
     public sealed class MeasurementGenerationOverride
@@ -359,6 +412,11 @@ namespace ExcelCalibrationAddin.Contracts
     {
         public string ProjectName { get; set; } = string.Empty;
         public CellRange SectionRange { get; set; }
+        public int? BlockOrdinal { get; set; }
+        public int? BlockRuleOrdinal { get; set; }
+        public CellRange BlockRange { get; set; }
+        public string BlockStructureSignature { get; set; } = string.Empty;
+        public string BlockItemStructureSignature { get; set; } = string.Empty;
         public CellRange SetpointValueRange { get; set; }
         public CellRange StandardValueRange { get; set; }
         public CellRange MeasurementValueRange { get; set; }
@@ -370,6 +428,7 @@ namespace ExcelCalibrationAddin.Contracts
         public CellRange ResultRange { get; set; }
         public List<MeasurementJudgementConstraint> AdditionalJudgementConstraints { get; set; } = new List<MeasurementJudgementConstraint>();
         public string Notes { get; set; } = string.Empty;
+        public string RecognitionError { get; set; } = string.Empty;
     }
 
     public sealed class MeasurementGenerationInput

@@ -75,6 +75,11 @@ namespace ExcelCalibrationAddin.Host.Vsto
             {
                 FieldName = rule.FieldName,
                 FieldAlias = rule.FieldAlias,
+                BlockOrdinal = rule.BlockOrdinal,
+                BlockRuleOrdinal = rule.BlockRuleOrdinal,
+                BlockRange = CloneRange(rule.BlockRange),
+                BlockStructureSignature = rule.BlockStructureSignature,
+                BlockItemStructureSignature = rule.BlockItemStructureSignature,
                 TargetRange = CloneRange(rule.TargetRange),
                 ErrorType = rule.ErrorType,
                 FillMode = rule.FillMode,
@@ -106,6 +111,7 @@ namespace ExcelCalibrationAddin.Host.Vsto
                 GenerationCoefficientOverride = CloneCoefficientOverride(rule.GenerationCoefficientOverride),
                 ErrorFormula = CloneErrorFormula(rule.ErrorFormula),
                 AdditionalJudgementConstraints = CloneJudgementConstraints(rule.AdditionalJudgementConstraints),
+                RecognitionError = rule.RecognitionError,
                 TemplateDefinition = TemplateDefinitionCloner.Clone(rule.TemplateDefinition)
             };
         }
@@ -182,6 +188,10 @@ namespace ExcelCalibrationAddin.Host.Vsto
                 .Select(item => new MeasurementRowMapping
                 {
                     Row = item.Row,
+                    RowOrdinal = item.RowOrdinal,
+                    StandardValueOrdinal = item.StandardValueOrdinal,
+                    RepeatMeasurementOrdinal = item.RepeatMeasurementOrdinal,
+                    AssociationKey = item.AssociationKey,
                     SetpointValueRange = CloneRange(item.SetpointValueRange),
                     StandardValueRange = CloneRange(item.StandardValueRange),
                     MeasurementCells = CloneCellAddresses(item.MeasurementCells),
@@ -193,7 +203,8 @@ namespace ExcelCalibrationAddin.Host.Vsto
                     ResultRange = CloneRange(item.ResultRange),
                     AdditionalJudgementConstraints = CloneJudgementConstraints(item.AdditionalJudgementConstraints),
                     IsComplete = item.IsComplete,
-                    StatusMessage = item.StatusMessage
+                    StatusMessage = item.StatusMessage,
+                    RecognitionError = item.RecognitionError
                 })
                 .ToList();
         }

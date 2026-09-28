@@ -22,6 +22,11 @@ namespace ExcelCalibrationAddin.Core.Repositories
             {
                 FieldName = rule.FieldName,
                 FieldAlias = rule.FieldAlias,
+                BlockOrdinal = rule.BlockOrdinal,
+                BlockRuleOrdinal = rule.BlockRuleOrdinal,
+                BlockRange = CloneRange(rule.BlockRange),
+                BlockStructureSignature = rule.BlockStructureSignature,
+                BlockItemStructureSignature = rule.BlockItemStructureSignature,
                 TargetRange = CloneRange(rule.TargetRange),
                 ErrorType = rule.ErrorType,
                 FillMode = rule.FillMode,
@@ -129,6 +134,10 @@ namespace ExcelCalibrationAddin.Core.Repositories
                 .Select(item => new MeasurementRowMapping
                 {
                     Row = item.Row,
+                    RowOrdinal = item.RowOrdinal,
+                    StandardValueOrdinal = item.StandardValueOrdinal,
+                    RepeatMeasurementOrdinal = item.RepeatMeasurementOrdinal,
+                    AssociationKey = item.AssociationKey,
                     SetpointValueRange = CloneRange(item.SetpointValueRange),
                     StandardValueRange = CloneRange(item.StandardValueRange),
                     MeasurementCells = CloneCellAddresses(item.MeasurementCells),
@@ -140,7 +149,8 @@ namespace ExcelCalibrationAddin.Core.Repositories
                     ResultRange = CloneRange(item.ResultRange),
                     AdditionalJudgementConstraints = CloneJudgementConstraints(item.AdditionalJudgementConstraints),
                     IsComplete = item.IsComplete,
-                    StatusMessage = item.StatusMessage
+                    StatusMessage = item.StatusMessage,
+                    RecognitionError = item.RecognitionError
                 })
                 .ToList();
         }

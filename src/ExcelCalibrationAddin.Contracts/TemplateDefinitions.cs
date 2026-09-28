@@ -29,11 +29,25 @@ namespace ExcelCalibrationAddin.Contracts
 
     public sealed class TemplateFieldDefinition
     {
-        public int SchemaVersion { get; set; } = 1;
+        // Version 2 denotes a location-only template.  Runtime values such as
+        // current formulas, units and requirement values are read from the
+        // workbook during generation and must not be treated as authoritative
+        // persisted data.
+        public int SchemaVersion { get; set; } = 2;
         public string ProjectName { get; set; } = string.Empty;
         public CellRange SectionRange { get; set; }
         public List<TemplateHeaderDefinition> Headers { get; set; } = new List<TemplateHeaderDefinition>();
         public List<TemplateRegionDefinition> Regions { get; set; } = new List<TemplateRegionDefinition>();
+    }
+
+    /// <summary>Stable field role persisted by template recognition.</summary>
+    public sealed class TemplateFieldLocation
+    {
+        public TemplateRegionRole Role { get; set; }
+        public CellRange Range { get; set; }
+        public CellRange HeaderRange { get; set; }
+        public int? RowOrdinal { get; set; }
+        public string AssociationKey { get; set; } = string.Empty;
     }
 
     public sealed class TemplateHeaderDefinition

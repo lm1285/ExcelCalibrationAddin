@@ -26,12 +26,30 @@ namespace ExcelCalibrationAddin.Host.Services
                     continue;
                 }
 
-                if (!HasTemplateFormulaInfo(rule.ErrorFormula))
+                // Formula text and cached results belong to the current
+                // workbook.  If the located cell currently contains a formula,
+                // always rebuild the formula descriptor so edits at the same
+                // address invalidate the old interpretation.  Synthetic/unit
+                // test rules without a snapshot formula retain their supplied
+                // descriptor for backwards compatibility.
+                var currentFormula = ResolveErrorFormula(sheet, rule);
+                if (currentFormula.HasFormula)
+                {
+                    rule.ErrorFormula = currentFormula;
+                    ApplySupplementalFormulaInfo(sheet, rule, rule.ErrorFormula);
+                }
+                else if (!HasTemplateFormulaInfo(rule.ErrorFormula))
                 {
                     rule.ErrorFormula = HasBaseFormulaInfo(rule.ErrorFormula)
                         ? rule.ErrorFormula
                         : ResolveErrorFormula(sheet, rule);
                     ApplySupplementalFormulaInfo(sheet, rule, rule.ErrorFormula);
+                }
+                else
+                {
+                    // Even when the primary formula is absent, clear stale
+                    // supplemental formulas that may have been removed.
+                    RefreshSupplementalFormulaInfo(sheet, rule, rule.ErrorFormula);
                 }
 
                 RefreshFormulaClassification(sheet, rule, rule.ErrorFormula);
@@ -334,6 +352,23 @@ namespace ExcelCalibrationAddin.Host.Services
             {
                 return;
             }
+
+            RefreshSupplementalFormulaInfo(sheet, rule, info);
+        }
+
+        private static void RefreshSupplementalFormulaInfo(SheetSnapshot sheet, MeasurementRule rule, ErrorFormulaInfo info)
+        {
+            if (info == null)
+            {
+                return;
+            }
+
+            info.TechnicalRequirementFormula = string.Empty;
+            info.TechnicalRequirementFormulaResolved = false;
+            info.UncertaintyFormula = string.Empty;
+            info.UncertaintyFormulaResolved = false;
+            info.ResultFormula = string.Empty;
+            info.ResultFormulaResolved = false;
 
             var technicalRequirementFormula = ResolveFirstFormula(sheet, rule?.MpeSource?.Range);
             if (!string.IsNullOrWhiteSpace(technicalRequirementFormula))

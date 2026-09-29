@@ -51,6 +51,7 @@ namespace ExcelCalibrationAddin.Host.Services
                     item.Row <= searchEndRow &&
                     !string.IsNullOrWhiteSpace(item.Text) &&
                     !LooksLikeSectionTitle(item.Text) &&
+                    !IsExcludedErrorHeader(sheet, startRow, item) &&
                     !(item.Row == startRow && string.Equals(NormalizeHeaderText(item.Text), NormalizeHeaderText(projectName), StringComparison.OrdinalIgnoreCase)) &&
                     IsErrorHeaderForProject(item.Text, aliases))
                 .OrderBy(item => item.Row)
@@ -197,6 +198,9 @@ namespace ExcelCalibrationAddin.Host.Services
                 .Where(range => extraErrorRanges.All(existing => !RangesOverlap(existing, range)) &&
                     !SameRange(range, primaryErrorRange)));
             extraErrorRanges = extraErrorRanges
+                .Where(range => occupied.All(existing => !DataRangesIntersect(existing, range)))
+                .GroupBy(RangeKey)
+                .Select(group => group.First())
                 .OrderBy(range => range.StartRow)
                 .ThenBy(range => range.StartColumn)
                 .ToList();
@@ -339,6 +343,14 @@ namespace ExcelCalibrationAddin.Host.Services
             return rowOverlap * 100000d + columnOverlap * 100000d - rowDistance * 10d - columnDistance;
         }
 
+        private static bool DataRangesIntersect(CellRange left, CellRange right)
+        {
+            return left != null && right != null &&
+                string.Equals(left.SheetName, right.SheetName, StringComparison.OrdinalIgnoreCase) &&
+                left.StartRow <= right.EndRow && right.StartRow <= left.EndRow &&
+                left.StartColumn <= right.EndColumn && right.StartColumn <= left.EndColumn;
+        }
+
         private static bool SameRange(CellRange left, CellRange right)
         {
             return left != null && right != null &&
@@ -373,6 +385,7 @@ namespace ExcelCalibrationAddin.Host.Services
                     item.Row <= searchEndRow &&
                     !string.IsNullOrWhiteSpace(item.Text) &&
                     !LooksLikeSectionTitle(item.Text) &&
+                    !IsExcludedErrorHeader(sheet, startRow, item) &&
                     !(item.Row == startRow && string.Equals(NormalizeHeaderText(item.Text), NormalizeHeaderText(projectName), StringComparison.OrdinalIgnoreCase)) &&
                     IsErrorHeaderForProject(item.Text, aliases))
                 .OrderBy(item => item.Row)
@@ -452,6 +465,7 @@ namespace ExcelCalibrationAddin.Host.Services
                     !string.IsNullOrWhiteSpace(cell.Text) &&
                     !LooksLikeSectionTitle(cell.Text) &&
                     !(keywords == ErrorKeywords && cell.Row == startRow) &&
+                    !(keywords == ErrorKeywords && IsExcludedErrorHeader(sheet, startRow, cell)) &&
                     !LooksLikeWrongFieldHeader(cell.Text, keywords) &&
                     keywords.Any(keyword => MatchesKeyword(cell.Text, keyword)))
                 .OrderBy(cell => cell.Row)
@@ -672,6 +686,7 @@ namespace ExcelCalibrationAddin.Host.Services
         {
             var normalized = NormalizeHeaderText(text);
             if (string.IsNullOrWhiteSpace(normalized) ||
+                LooksLikeWrongFieldHeader(text, ErrorKeywords) ||
                 normalized.IndexOf("\u6280\u672F\u8981\u6C42", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 normalized.IndexOf("\u7ED3\u8BBA", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 normalized.IndexOf("\u9650", StringComparison.OrdinalIgnoreCase) >= 0)

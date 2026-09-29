@@ -137,7 +137,6 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 				directory.Metadata);
 			_usesTemplateGenerationConfiguration = true;
 			_canGenerate = true;
-			NotifyGenerationStateChanged();
 			_hasUnsavedChanges = false;
 			MessageBox.Show(saveResult.Message, "保存模板");
 		}

@@ -20,9 +20,9 @@ namespace ExcelCalibrationAddin.Host.Recognition
             mapping.SetpointValueRange = AlignStandardValueRangeToMeasurementRows(sheet, mapping.SetpointValueRange, mapping.MeasurementValueRange);
             mapping.StandardValueRange = TrimRangeToDataRows(sheet, mapping.StandardValueRange);
             mapping.StandardValueRange = AlignStandardValueRangeToMeasurementRows(sheet, mapping.StandardValueRange, mapping.MeasurementValueRange);
-            mapping.AverageValueRange = TrimRangeToDataRows(sheet, mapping.AverageValueRange);
-            mapping.ErrorValueRange = ExpandMergedDataRows(sheet, TrimRangeToDataRows(sheet, mapping.ErrorValueRange));
-            mapping.TechnicalRequirementRange = ExpandMergedDataRows(sheet, TrimRangeToDataRows(sheet, mapping.TechnicalRequirementRange));
+            mapping.AverageValueRange = ExpandMergedDataColumns(sheet, TrimRangeToDataRows(sheet, mapping.AverageValueRange));
+            mapping.ErrorValueRange = ExpandMergedDataColumns(sheet, ExpandMergedDataRows(sheet, TrimRangeToDataRows(sheet, mapping.ErrorValueRange)));
+            mapping.TechnicalRequirementRange = ExpandMergedDataColumns(sheet, ExpandMergedDataRows(sheet, TrimRangeToDataRows(sheet, mapping.TechnicalRequirementRange)));
             mapping.UncertaintyRange = TrimRangeToDataRows(sheet, mapping.UncertaintyRange);
             mapping.RangeValueRange = TrimRangeToDataRows(sheet, mapping.RangeValueRange);
             mapping.ResultRange = TrimRangeToDataRows(sheet, mapping.ResultRange);
@@ -122,6 +122,54 @@ namespace ExcelCalibrationAddin.Host.Recognition
                 EndRow = endRow,
                 StartColumn = range.StartColumn,
                 EndColumn = range.EndColumn
+            };
+        }
+
+        private static CellRange ExpandMergedDataColumns(SheetSnapshot sheet, CellRange range)
+        {
+            if (sheet == null || range == null)
+            {
+                return range;
+            }
+
+            var startColumn = range.StartColumn;
+            var endColumn = range.EndColumn;
+            var changed = true;
+            while (changed)
+            {
+                changed = false;
+                foreach (var cell in sheet.Cells.Where(item =>
+                    item.Row >= range.StartRow &&
+                    item.Row <= range.EndRow &&
+                    item.MergeRange != null &&
+                    item.MergeRange.StartColumn <= endColumn &&
+                    item.MergeRange.EndColumn >= startColumn))
+                {
+                    if (cell.MergeRange.StartColumn < startColumn)
+                    {
+                        startColumn = cell.MergeRange.StartColumn;
+                        changed = true;
+                    }
+                    if (cell.MergeRange.EndColumn > endColumn)
+                    {
+                        endColumn = cell.MergeRange.EndColumn;
+                        changed = true;
+                    }
+                }
+            }
+
+            if (startColumn == range.StartColumn && endColumn == range.EndColumn)
+            {
+                return range;
+            }
+
+            return new CellRange
+            {
+                SheetName = range.SheetName,
+                StartRow = range.StartRow,
+                EndRow = range.EndRow,
+                StartColumn = startColumn,
+                EndColumn = endColumn
             };
         }
 

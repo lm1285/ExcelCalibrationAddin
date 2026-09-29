@@ -21,7 +21,8 @@ namespace ExcelCalibrationAddin.Host.Recognition
             int endRow,
             CellRange measurementRange,
             CellRange averageRange,
-            CellRange standardRange)
+            CellRange standardRange,
+            params CellRange[] excludedRanges)
         {
             var referenceRange = averageRange ?? measurementRange ?? standardRange;
             if (referenceRange == null)
@@ -44,7 +45,8 @@ namespace ExcelCalibrationAddin.Host.Recognition
             {
                 if (IsColumnInsideRange(column, referenceRange) ||
                     IsColumnInsideRange(column, averageRange) ||
-                    IsColumnInsideRange(column, standardRange))
+                    IsColumnInsideRange(column, standardRange) ||
+                    excludedRanges.Any(range => IsColumnInsideRange(column, range)))
                 {
                     continue;
                 }
@@ -65,6 +67,11 @@ namespace ExcelCalibrationAddin.Host.Recognition
             var endColumn = best.Column;
             for (var column = best.Column + 1; column <= searchEndColumn; column++)
             {
+                if (excludedRanges.Any(range => IsColumnInsideRange(column, range)))
+                {
+                    break;
+                }
+
                 var sibling = ScoreColumn(sheet, column, dataStartRow, dataEndRow, referenceRange, referenceRule, referenceFormat);
                 if (!IsSiblingColumn(best, sibling))
                 {

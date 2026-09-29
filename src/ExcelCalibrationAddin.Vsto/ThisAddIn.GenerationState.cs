@@ -143,6 +143,33 @@ namespace ExcelCalibrationAddin.Vsto
             RefreshRandomRangeSummary(_lastGenerationState.DraftRules, _lastGenerationState.AppliedGenerationConfiguration);
         }
 
+        private void RememberSavedTemplateGenerationState(
+            string workbookKey,
+            string workbookName,
+            TemplateFingerprint fingerprint,
+            IReadOnlyList<MeasurementRule> rules,
+            GenerationConfiguration generationConfiguration)
+        {
+            if (_lastGenerationState == null ||
+                !string.Equals(_lastMatchedWorkbookKey, workbookKey, StringComparison.OrdinalIgnoreCase))
+            {
+                _lastGenerationState = new TaskPaneState { WorkbookName = workbookName };
+            }
+
+            _lastGenerationState.DraftRules = rules ?? new List<MeasurementRule>();
+            _lastGenerationState.AppliedGenerationConfiguration = generationConfiguration ?? LoadGenerationConfiguration();
+            _lastGenerationState.GenerationWarningMessages = new List<string>();
+            _lastGenerationState.CanGenerate = _lastGenerationState.DraftRules.Count > 0 &&
+                !_lastGenerationState.DraftRules.Any(rule => !string.IsNullOrWhiteSpace(rule?.RecognitionError));
+            _lastGenerationState.IsFeatureBlocked = false;
+            _lastGenerationState.ExactFingerprint = fingerprint?.ExactFingerprint ?? string.Empty;
+            _lastGenerationState.Fingerprint = fingerprint;
+            _lastGenerationState.UsesTemplateGenerationConfiguration = generationConfiguration != null;
+            _lastGenerationState.LocalTemplateStatus = TemplateLifecycleStatus.Enabled;
+            _lastMatchedWorkbookKey = workbookKey;
+            RefreshRandomRangeSummary(_lastGenerationState.DraftRules, _lastGenerationState.AppliedGenerationConfiguration);
+        }
+
         private void ApplyGlobalGenerationConfigurationToCurrentState()
         {
             if (_lastGenerationState == null || _lastGenerationState.UsesTemplateGenerationConfiguration)

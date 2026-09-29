@@ -40,23 +40,55 @@ namespace ExcelCalibrationAddin.Host.Services
                     return false;
                 }
 
-                if (!SameHeaderPath(savedRegion.HeaderPath, currentRegion.HeaderPath))
+                // Template persistence intentionally removes workbook-dependent
+                // headers, units and formulas. In that form the saved
+                // definition is a layout contract, so compare ranges only and
+                // let the current workbook rebuild dynamic metadata.
+                if (!IsPersistedLayoutOnly(saved))
                 {
-                    return false;
-                }
+                    if (!SameHeaderPath(savedRegion.HeaderPath, currentRegion.HeaderPath))
+                    {
+                        return false;
+                    }
 
-                if (!SameFormulaSet(savedRegion, currentRegion))
-                {
-                    return false;
-                }
+                    if (!SameFormulaSet(savedRegion, currentRegion))
+                    {
+                        return false;
+                    }
 
-                if (!HasCompatibleUnits(savedRegion, currentRegion))
-                {
-                    return false;
+                    if (!HasCompatibleUnits(savedRegion, currentRegion))
+                    {
+                        return false;
+                    }
                 }
             }
 
             return true;
+        }
+
+        private static bool IsPersistedLayoutOnly(TemplateFieldDefinition definition)
+        {
+            if (definition == null)
+            {
+                return false;
+            }
+
+            return (definition.Headers ?? new List<TemplateHeaderDefinition>())
+                .All(header => header == null ||
+                    string.IsNullOrWhiteSpace(header.Text) &&
+                    string.IsNullOrWhiteSpace(header.Unit) &&
+                    string.IsNullOrWhiteSpace(header.NumberFormat)) &&
+                (definition.Regions ?? new List<TemplateRegionDefinition>())
+                .All(region => region == null ||
+                    (region.HeaderPath ?? new List<string>()).Count == 0 &&
+                    string.IsNullOrWhiteSpace(region.Unit) &&
+                    (region.Units ?? new List<string>()).Count == 0 &&
+                    string.IsNullOrWhiteSpace(region.NumberFormat) &&
+                    region.Formula == null &&
+                    (region.FormulaVariants ?? new List<TemplateFormulaDefinition>()).Count == 0 &&
+                    (region.RequirementValues ?? new List<TemplateRequirementValue>()).Count == 0 &&
+                    region.OperatorRange == null &&
+                    region.ValueRange == null);
         }
 
         private static bool SameRelativeRange(

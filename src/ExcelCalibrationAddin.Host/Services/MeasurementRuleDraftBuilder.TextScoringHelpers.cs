@@ -31,6 +31,39 @@ namespace ExcelCalibrationAddin.Host.Services
             return ScoreKeywordMatch(text, keyword) > 0;
         }
 
+        private static bool LooksLikeTechnicalRequirementHeader(string text)
+        {
+            var value = NormalizeHeaderText(text);
+            return !string.IsNullOrWhiteSpace(value) &&
+                TechnicalKeywords.Where(keyword => keyword != "\u6F02\u79FB").Any(keyword =>
+                    value.IndexOf(NormalizeHeaderText(keyword), StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        private static bool IsExcludedErrorHeader(SheetSnapshot sheet, int startRow, CellMeta cell)
+        {
+            if (LooksLikeWrongFieldHeader(cell.Text, ErrorKeywords))
+            {
+                return true;
+            }
+
+            if (!string.Equals(NormalizeHeaderText(cell.Text), "%FS", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var columnStart = cell.MergeRange?.StartColumn ?? cell.Column;
+            var columnEnd = cell.MergeRange?.EndColumn ?? cell.Column;
+            // A unit-only child header inherits the nearest enclosing header.
+            var parent = sheet.Cells
+                .Where(item => item.Row >= Math.Max(startRow, cell.Row - 2) && item.Row < cell.Row &&
+                    (item.MergeRange?.StartColumn ?? item.Column) <= columnStart &&
+                    (item.MergeRange?.EndColumn ?? item.Column) >= columnEnd &&
+                    !string.IsNullOrWhiteSpace(item.Text))
+                .OrderByDescending(item => item.Row)
+                .FirstOrDefault();
+            return parent != null && LooksLikeTechnicalRequirementHeader(parent.Text);
+        }
+
         private static int InferPrintEndColumn(SheetSnapshot sheet)
         {
             if (sheet.Cells.Count == 0)
@@ -47,6 +80,20 @@ namespace ExcelCalibrationAddin.Host.Services
             if (string.IsNullOrWhiteSpace(value))
             {
                 return false;
+            }
+
+            if (keywords == ErrorKeywords &&
+                (LooksLikeTechnicalRequirementHeader(text) ||
+                 (value.IndexOf("%FS", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                  (char.IsDigit(value[0]) || "+-±<>=≤≥".IndexOf(value[0]) >= 0))))
+            {
+                return true;
+            }
+
+            if (keywords == RangeKeywords &&
+                string.Equals(value, "%FS", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
             }
 
             var isMeasurementSearch = keywords == MeasurementKeywords;

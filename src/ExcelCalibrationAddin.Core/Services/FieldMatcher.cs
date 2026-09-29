@@ -59,14 +59,9 @@ namespace ExcelCalibrationAddin.Core.Services
             var numberedFields = BuildNumberedSectionFields(sheet);
             if (numberedFields.Count > 0)
             {
-                // Some books number an outer context heading (for example a gas
-                // block) while the actual calibration items below it are unnumbered.
-                // In that case the inner item headings are the useful fields.
-                if (numberedFields.All(field => !field.Reason.Contains("按子标题识别")))
-                {
-                    var fallbackFields = BuildUnnumberedSectionFields(sheet);
-                    if (fallbackFields.Count > 0) return fallbackFields;
-                }
+                // No child titles means each numbered top-level title is a
+                // calibration item. Do not replace them with keyword headings
+                // that happen to sit inside those sections.
                 return numberedFields;
             }
 

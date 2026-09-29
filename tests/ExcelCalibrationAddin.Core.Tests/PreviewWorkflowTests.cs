@@ -507,6 +507,75 @@ namespace ExcelCalibrationAddin.Core.Tests
         }
 
         [TestMethod]
+        public void NearbyPercentLelHeaderDoesNotScaleSecondsRequirement()
+        {
+            var snapshot = new WorkbookSnapshot
+            {
+                Sheets = new List<SheetSnapshot>
+                {
+                    new SheetSnapshot
+                    {
+                        Name = "Sheet1",
+                        Cells = new List<CellMeta>
+                        {
+                            new CellMeta { Row = 4, Column = 1, Text = "标准值\n(%LEL)" },
+                            new CellMeta { Row = 4, Column = 3, Text = "测量值/s" },
+                            new CellMeta { Row = 4, Column = 6, Text = "技术要求" },
+                            new CellMeta { Row = 5, Column = 1, Text = "40.0" },
+                            new CellMeta { Row = 5, Column = 6, Text = "扩散式：≤60s", DisplayText = "扩散式：≤60s" }
+                        }
+                    }
+                }
+            };
+            var rule = new MeasurementRule
+            {
+                FieldName = "七、响应时间",
+                TargetRange = new CellRange { SheetName = "Sheet1", StartRow = 5, EndRow = 5, StartColumn = 3, EndColumn = 5 },
+                MpeSource = new ParameterSource
+                {
+                    Range = new CellRange { SheetName = "Sheet1", StartRow = 5, EndRow = 5, StartColumn = 6, EndColumn = 6 }
+                },
+                FormatRule = new FormatRule { DecimalPlaces = 2, UnitSuffix = "s" },
+                WritableCells = Enumerable.Range(3, 3)
+                    .Select(column => new CellAddress { Row = 5, Column = column })
+                    .ToList()
+            };
+
+            var resolved = new MeasurementRuleParameterResolver().Apply(snapshot, new[] { rule }).Single();
+
+            Assert.AreEqual(60d, resolved.FixedMpe.GetValueOrDefault(), 1e-12);
+            Assert.AreEqual(TechnicalRequirementOperator.LessThanOrEqual, resolved.RequirementOperator);
+            Assert.IsTrue(ExcelCalibrationAddin.Host.Generation.GenerationRuleValidator.IsUpperLimitRule(resolved));
+        }
+
+        [TestMethod]
+        public void SecondsUpperLimitRestoresPercentScaledRequirement()
+        {
+            var useCase = new GenerateMeasurementUseCase(
+                configuration => new MeasurementValueGenerator(configuration, new Random(49)),
+                new GenerationConfiguration { DefaultDistribution = "Uniform" },
+                new RecordingWorkbookWriter(),
+                null,
+                null);
+            var rule = new MeasurementRule
+            {
+                FieldName = "响应时间",
+                TargetRange = Range("C5:E5"),
+                FixedMpe = 0.6,
+                RequirementOperator = TechnicalRequirementOperator.LessThanOrEqual,
+                MpeSource = new ParameterSource { ValuePattern = "mpe:absolute:scale=0.01:op=lessthanorequal:unit=s" },
+                FormatRule = new FormatRule { DecimalPlaces = 2, UnitSuffix = "s" },
+                WritableCells = Enumerable.Range(3, 3)
+                    .Select(column => new CellAddress { Row = 5, Column = column })
+                    .ToList()
+            };
+
+            var preview = useCase.PreviewPreResolved(new[] { rule }).Single();
+
+            Assert.IsTrue(preview.RawValues.All(value => value >= 15 && value <= 21));
+        }
+
+        [TestMethod]
         public void GenerationWriteResultRemovesDuplicateAndBlankWarnings()
         {
             var result = GenerationWriteResult.FromPreviews(new[]

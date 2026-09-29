@@ -65,9 +65,9 @@ namespace ExcelCalibrationAddin.Core.Tests
                 cells.Add(new CellMeta { Row = start, Column = 1, Text = ordinal + "、气体类别：" });
                 cells.Add(new CellMeta { Row = start + 1, Column = 1, Text = "Type of gas" });
                 cells.Add(new CellMeta { Row = start + 2, Column = 1, Text = "项目" });
-                cells.Add(MergedProjectTitle(start + 4, "示值误差"));
-                cells.Add(MergedProjectTitle(start + 7, "重复性"));
-                cells.Add(MergedProjectTitle(start + 8, "响应时间"));
+                cells.Add(new CellMeta { Row = start + 4, Column = 1, Text = "4." + ordinal + "、示值误差" });
+                cells.Add(new CellMeta { Row = start + 7, Column = 1, Text = "4." + (ordinal + 1) + "、重复性" });
+                cells.Add(new CellMeta { Row = start + 8, Column = 1, Text = "4." + (ordinal + 2) + "、响应时间" });
                 cells.Add(new CellMeta { Row = start + 4, Column = 6, Formula = "=OtherSheet!A1" });
                 cells.Add(new CellMeta { Row = start + 7, Column = 6, Formula = "=OtherSheet!A2" });
                 cells.Add(new CellMeta { Row = start + 8, Column = 6, Formula = "=OtherSheet!A3" });
@@ -75,7 +75,8 @@ namespace ExcelCalibrationAddin.Core.Tests
             var fields = new FieldMatcher().MatchMeasurementFields(new SheetSnapshot { Name = "Summary", Cells = cells });
 
             Assert.AreEqual(6, fields.Count);
-            CollectionAssert.AreEqual(new[] { "示值误差", "重复性", "响应时间", "示值误差", "重复性", "响应时间" },
+            CollectionAssert.AreEqual(
+                new[] { "4.1、示值误差", "4.2、重复性", "4.3、响应时间", "4.2、示值误差", "4.3、重复性", "4.4、响应时间" },
                 fields.OrderBy(field => field.Range.StartRow).Select(field => field.Alias).ToArray());
         }
 

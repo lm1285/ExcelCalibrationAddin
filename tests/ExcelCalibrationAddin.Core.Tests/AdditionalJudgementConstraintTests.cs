@@ -13,6 +13,72 @@ namespace ExcelCalibrationAddin.Core.Tests
     [TestClass]
     public sealed class AdditionalJudgementConstraintTests
     {
+        [DataTestMethod]
+        [DataRow(true)]
+        [DataRow(false)]
+        public void DraftBuilderRecognizesMergedResponseTimeResultAsSingleJudgement(bool hasAverageFormula)
+        {
+            var sheet = new SheetSnapshot { Name = "Sheet1", Cells = new List<CellMeta>() };
+            sheet.Cells.Add(MergedResponseTimeCell(17, 17, 1, 32, "七、响应时间："));
+            sheet.Cells.Add(MergedResponseTimeCell(18, 19, 1, 4, "标准值（%LEL）"));
+            sheet.Cells.Add(MergedResponseTimeCell(18, 18, 5, 16, "测量值（s）"));
+            sheet.Cells.Add(MergedResponseTimeCell(18, 19, 17, 22, "响应时间（s）"));
+            sheet.Cells.Add(MergedResponseTimeCell(18, 19, 23, 29, "技术要求"));
+            sheet.Cells.Add(MergedResponseTimeCell(18, 19, 30, 32, "结论（P/F）"));
+            for (var index = 0; index < 3; index++)
+            {
+                var column = 5 + index * 4;
+                sheet.Cells.Add(MergedResponseTimeCell(19, 19, column, column + 3, (index + 1).ToString()));
+                sheet.Cells.Add(MergedResponseTimeCell(20, 20, column, column + 3, new[] { "15.59", "14.93", "13.90" }[index]));
+            }
+            sheet.Cells.Add(MergedResponseTimeCell(20, 20, 1, 4, "40.0"));
+            var result = MergedResponseTimeCell(20, 20, 17, 22, "14.8");
+            result.Formula = hasAverageFormula ? "=AVERAGE(E20:P20)" : string.Empty;
+            sheet.Cells.Add(result);
+            sheet.Cells.Add(MergedResponseTimeCell(20, 20, 23, 29, "扩散式：≤60s"));
+            sheet.Cells.Add(MergedResponseTimeCell(20, 20, 30, 32, "P"));
+            var recognition = new RecognitionResult
+            {
+                Snapshot = new WorkbookSnapshot { Sheets = new List<SheetSnapshot> { sheet } },
+                RecognizedFields = new List<RecognizedField>
+                {
+                    new RecognizedField
+                    {
+                        Alias = "七、响应时间",
+                        Score = 96,
+                        Range = new CellRange { SheetName = "Sheet1", StartRow = 17, EndRow = 20, StartColumn = 1, EndColumn = 32 }
+                    }
+                }
+            };
+
+            var builder = new MeasurementRuleDraftBuilder(new NumberFormatInterpreter());
+            var mapping = builder.BuildMappings(recognition).Single();
+
+            Assert.IsTrue(string.IsNullOrWhiteSpace(mapping.RecognitionError), mapping.RecognitionError);
+            Assert.IsNotNull(mapping.ErrorValueRange);
+            Assert.AreEqual(20, mapping.ErrorValueRange.StartRow);
+            Assert.AreEqual(20, mapping.ErrorValueRange.EndRow);
+            Assert.AreEqual(17, mapping.ErrorValueRange.StartColumn);
+            Assert.AreEqual(22, mapping.ErrorValueRange.EndColumn);
+            Assert.AreEqual(23, mapping.TechnicalRequirementRange.StartColumn);
+            Assert.AreEqual(29, mapping.TechnicalRequirementRange.EndColumn);
+            Assert.AreEqual(0, mapping.AdditionalJudgementConstraints.Count);
+            var rule = builder.BuildDraftRules(recognition, new[] { mapping }).Single();
+            Assert.IsTrue(string.IsNullOrWhiteSpace(rule.RecognitionError), rule.RecognitionError);
+        }
+
+        private static CellMeta MergedResponseTimeCell(int row, int endRow, int column, int endColumn, string text)
+        {
+            return new CellMeta
+            {
+                Row = row,
+                Column = column,
+                Text = text,
+                NumberFormat = "0.0",
+                MergeRange = new CellRange { SheetName = "Sheet1", StartRow = row, EndRow = endRow, StartColumn = column, EndColumn = endColumn }
+            };
+        }
+
         [TestMethod]
         public void DraftBuilderKeepsSecondaryJudgementColumnsOnTheSameCalibrationItem()
         {
@@ -82,6 +148,159 @@ namespace ExcelCalibrationAddin.Core.Tests
             Assert.AreEqual(1, rule.AdditionalJudgementConstraints.Count);
             Assert.AreEqual(3, rule.ErrorSource.Range.StartColumn);
             Assert.AreEqual(6, rule.AdditionalJudgementConstraints[0].ErrorSource.Range.StartColumn);
+        }
+
+        [DataTestMethod]
+        [DataRow("技术要求（%FS）", "±1.0%FS")]
+        [DataRow("允许误差（%FS）", "±1.0%FS")]
+        [DataRow("最大允许误差（%FS）", "±1.0%FS")]
+        [DataRow("MPE（%FS）", "±1.0%FS")]
+        [DataRow("误差限（%FS）", "±1.0%FS")]
+        [DataRow("限值（%FS）", "≤1.0%FS")]
+        [DataRow("技术要求", "-1.0%FS")]
+        [DataRow("技术要求", "+1.0%FS")]
+        [DataRow("技术要求", "1.0%FS")]
+        [DataRow("技术要求", "±5")]
+        public void DraftBuilderDoesNotTreatTechnicalRequirementWithFsUnitAsSecondaryError(string header, string tolerance)
+        {
+            var snapshot = new WorkbookSnapshot
+            {
+                Sheets = new List<SheetSnapshot>
+                {
+                    new SheetSnapshot
+                    {
+                        Name = "Sheet1",
+                        Cells = new List<CellMeta>
+                        {
+                            new CellMeta { Row = 1, Column = 1, Text = "示值误差" },
+                            new CellMeta { Row = 2, Column = 1, Text = "标准值" },
+                            new CellMeta { Row = 2, Column = 2, Text = "测量值" },
+                            new CellMeta { Row = 2, Column = 3, Text = "示值误差" },
+                            new CellMeta { Row = 2, Column = 4, Text = header },
+                            new CellMeta { Row = 2, Column = 5, Text = "结论" },
+                            new CellMeta { Row = 3, Column = 1, Text = "100.0", NumberFormat = "0.0" },
+                            new CellMeta { Row = 3, Column = 2, Text = "100.2", NumberFormat = "0.0" },
+                            new CellMeta { Row = 3, Column = 3, Text = "0.2", Formula = "=B3-A3", NumberFormat = "0.0" },
+                            new CellMeta { Row = 3, Column = 4, Text = tolerance },
+                            new CellMeta { Row = 3, Column = 5, Text = "合格", Formula = "=IF(ABS(C3)<=1,\"合格\",\"不合格\")" }
+                        }
+                    }
+                }
+            };
+
+            var mapping = new MeasurementRuleDraftBuilder(new NumberFormatInterpreter())
+                .BuildMappings(BuildRecognition(snapshot, "示值误差"))
+                .Single();
+
+            Assert.IsTrue(string.IsNullOrWhiteSpace(mapping.RecognitionError), mapping.RecognitionError);
+            Assert.AreEqual(3, mapping.ErrorValueRange.StartColumn);
+            Assert.AreEqual(4, mapping.TechnicalRequirementRange.StartColumn);
+            Assert.AreEqual(0, mapping.AdditionalJudgementConstraints.Count);
+        }
+
+        [TestMethod]
+        public void DraftBuilderDoesNotTreatFsUnitBelowTechnicalRequirementAsSecondaryError()
+        {
+            var snapshot = new WorkbookSnapshot
+            {
+                Sheets = new List<SheetSnapshot>
+                {
+                    new SheetSnapshot
+                    {
+                        Name = "Sheet1",
+                        Cells = new List<CellMeta>
+                        {
+                            new CellMeta { Row = 1, Column = 1, Text = "示值误差" },
+                            new CellMeta { Row = 2, Column = 1, Text = "标准值" },
+                            new CellMeta { Row = 2, Column = 2, Text = "测量值" },
+                            new CellMeta { Row = 2, Column = 3, Text = "示值误差" },
+                            new CellMeta { Row = 2, Column = 4, Text = "技术要求" },
+                            new CellMeta { Row = 2, Column = 5, Text = "结论" },
+                            new CellMeta { Row = 3, Column = 4, Text = "%FS" },
+                            new CellMeta { Row = 4, Column = 1, Text = "100.0" },
+                            new CellMeta { Row = 4, Column = 2, Text = "100.2" },
+                            new CellMeta { Row = 4, Column = 3, Text = "0.2", Formula = "=B4-A4" },
+                            new CellMeta { Row = 4, Column = 4, Text = "±1.0%FS" },
+                            new CellMeta { Row = 4, Column = 5, Text = "合格", Formula = "=IF(ABS(C4)<=1,\"合格\",\"不合格\")" }
+                        }
+                    }
+                }
+            };
+
+            var mapping = new MeasurementRuleDraftBuilder(new NumberFormatInterpreter())
+                .BuildMappings(BuildRecognition(snapshot, "示值误差"))
+                .Single();
+
+            Assert.IsTrue(string.IsNullOrWhiteSpace(mapping.RecognitionError), mapping.RecognitionError);
+            Assert.AreEqual(3, mapping.ErrorValueRange.StartColumn);
+            Assert.AreEqual(4, mapping.TechnicalRequirementRange.StartColumn);
+            Assert.AreEqual(0, mapping.AdditionalJudgementConstraints.Count);
+        }
+
+        [TestMethod]
+        public void DraftBuilderKeepsStandaloneFsErrorWithItsOwnTechnicalRequirement()
+        {
+            var snapshot = new WorkbookSnapshot
+            {
+                Sheets = new List<SheetSnapshot>
+                {
+                    new SheetSnapshot
+                    {
+                        Name = "Sheet1",
+                        Cells = new List<CellMeta>
+                        {
+                            new CellMeta { Row = 1, Column = 1, Text = "示值误差" },
+                            new CellMeta { Row = 2, Column = 1, Text = "标准值" },
+                            new CellMeta { Row = 2, Column = 2, Text = "测量值" },
+                            new CellMeta { Row = 2, Column = 3, Text = "示值误差" },
+                            new CellMeta { Row = 2, Column = 4, Text = "技术要求" },
+                            new CellMeta { Row = 2, Column = 5, Text = "结论" },
+                            new CellMeta { Row = 2, Column = 6, Text = "%FS" },
+                            new CellMeta { Row = 2, Column = 7, Text = "技术要求" },
+                            new CellMeta { Row = 3, Column = 1, Text = "100.0" },
+                            new CellMeta { Row = 3, Column = 2, Text = "100.2" },
+                            new CellMeta { Row = 3, Column = 3, Text = "0.2", Formula = "=B3-A3" },
+                            new CellMeta { Row = 3, Column = 4, Text = "±1.0" },
+                            new CellMeta { Row = 3, Column = 5, Text = "合格" },
+                            new CellMeta { Row = 3, Column = 6, Text = "0.2", Formula = "=(B3-A3)/A3*100" },
+                            new CellMeta { Row = 3, Column = 7, Text = "±0.5" }
+                        }
+                    }
+                }
+            };
+
+            var mapping = new MeasurementRuleDraftBuilder(new NumberFormatInterpreter())
+                .BuildMappings(BuildRecognition(snapshot, "示值误差"))
+                .Single();
+
+            Assert.IsTrue(string.IsNullOrWhiteSpace(mapping.RecognitionError), mapping.RecognitionError);
+            Assert.AreEqual(1, mapping.AdditionalJudgementConstraints.Count);
+            Assert.AreEqual(6, mapping.AdditionalJudgementConstraints[0].ErrorSource.Range.StartColumn);
+            Assert.AreEqual(7, mapping.AdditionalJudgementConstraints[0].MpeSource.Range.StartColumn);
+        }
+
+        [DataTestMethod]
+        [DataRow(3, 4)]
+        [DataRow(4, 3)]
+        public void ErrorRangeInferenceExcludesTechnicalRequirementAndStopsSiblingExpansion(int errorColumn, int technicalColumn)
+        {
+            var sheet = new SheetSnapshot { Name = "Sheet1", Cells = new List<CellMeta>() };
+            for (var row = 3; row <= 5; row++)
+            {
+                sheet.Cells.Add(new CellMeta { Row = row, Column = 2, Text = "100.0", NumberFormat = "0.0" });
+                sheet.Cells.Add(new CellMeta { Row = row, Column = errorColumn, Text = "0.2", Formula = "=B" + row + "-100", NumberFormat = "0.0" });
+                sheet.Cells.Add(new CellMeta { Row = row, Column = technicalColumn, Text = "1.0", NumberFormat = "0.0" });
+            }
+
+            var range = new ErrorRangeDetector(new NumberFormatInterpreter()).Infer(
+                sheet, 1, 5,
+                new CellRange { SheetName = sheet.Name, StartRow = 3, EndRow = 5, StartColumn = 2, EndColumn = 2 },
+                null, null,
+                new CellRange { SheetName = sheet.Name, StartRow = 3, EndRow = 5, StartColumn = technicalColumn, EndColumn = technicalColumn });
+
+            Assert.IsNotNull(range);
+            Assert.AreEqual(errorColumn, range.StartColumn);
+            Assert.AreEqual(errorColumn, range.EndColumn);
         }
 
         [TestMethod]

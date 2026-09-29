@@ -32,7 +32,7 @@ namespace ExcelCalibrationAddin.Host.UseCases
             if (GenerationRuleValidator.IsUpperLimitRule(rule))
             {
                 GenerationRuleValidator.ValidateUpperLimitRule(rule, writableCells.Count, writableResolution.FailureReason);
-                return GenerateUpperLimitPreview(rule, writableCells, session);
+                return GenerateUpperLimitPreview(rule, writableCells);
             }
 
             if (GenerationRuleValidator.IsRepeatabilityGenerationRule(rule))

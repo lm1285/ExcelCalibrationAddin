@@ -135,7 +135,10 @@ namespace ExcelCalibrationAddin.Vsto
             TemplateDirectoryMetadata directoryMetadata = null)
         {
             EnsureFacade();
-            var preparedRules = _facade.PrepareRulesForTemplateSave(this.Application?.ActiveWorkbook, rules);
+            var workbook = this.Application?.ActiveWorkbook as Excel.Workbook;
+            var workbookKey = ResolveWorkbookKey(workbook);
+            var workbookName = SafeWorkbookName(workbook);
+            var preparedRules = _facade.PrepareRulesForTemplateSave(workbook, rules);
             var result = await _facade.SaveTemplateAsync(
                 templateName,
                 fingerprint,
@@ -143,6 +146,10 @@ namespace ExcelCalibrationAddin.Vsto
                 generationConfiguration,
                 createNew,
                 directoryMetadata);
+            if (result.SavedToLocal)
+            {
+                RememberSavedTemplateGenerationState(workbookKey, workbookName, fingerprint, preparedRules, generationConfiguration);
+            }
             this.Application.StatusBar = $"校准助手：{result.Message}";
             Trace.WriteLine($"[VSTO] Template saved. Name={templateName}, Rules={rules?.Count ?? 0}, SyncStatus={result.LocalSyncStatus}");
             return result;
@@ -159,8 +166,11 @@ namespace ExcelCalibrationAddin.Vsto
             string targetRemoteTemplateId = null)
         {
             EnsureFacade();
+            var workbook = this.Application?.ActiveWorkbook as Excel.Workbook;
+            var workbookKey = ResolveWorkbookKey(workbook);
+            var workbookName = SafeWorkbookName(workbook);
             var preparedRules = prepareFromWorkbook
-                ? _facade.PrepareRulesForTemplateSave(this.Application?.ActiveWorkbook, rules)
+                ? _facade.PrepareRulesForTemplateSave(workbook, rules)
                 : TaskPaneModelCloner.CloneRules(rules);
             var result = _facade.SaveTemplateAsync(
                     templateName,
@@ -172,6 +182,10 @@ namespace ExcelCalibrationAddin.Vsto
                     targetRemoteTemplateId)
                 .GetAwaiter()
                 .GetResult();
+            if (result.SavedToLocal)
+            {
+                RememberSavedTemplateGenerationState(workbookKey, workbookName, fingerprint, preparedRules, generationConfiguration);
+            }
             this.Application.StatusBar = $"校准助手：{result.Message}";
             Trace.WriteLine($"[VSTO] Template saved. Name={templateName}, Rules={rules?.Count ?? 0}, SyncStatus={result.LocalSyncStatus}");
             return result;

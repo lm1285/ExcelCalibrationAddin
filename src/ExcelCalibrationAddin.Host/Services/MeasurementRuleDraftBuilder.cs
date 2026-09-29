@@ -79,13 +79,15 @@ namespace ExcelCalibrationAddin.Host.Services
                     measurementRange = RefineRepeatabilityMeasurementRange(sheet, startRow, endRow, measurementRange, standardRange, averageRange);
                 }
 
+                var technicalRange = FindDataRange(sheet, startRow, endRow, TechnicalKeywords);
                 var errorRange = FindErrorRangeByProjectTitle(
                     sheet,
                     startRow,
                     endRow,
                     field.Alias,
                     standardRange,
-                    averageRange);
+                    averageRange,
+                    technicalRange);
 
                 errorRange = errorRange ?? _errorRangeDetector.Infer(
                     sheet,
@@ -93,7 +95,8 @@ namespace ExcelCalibrationAddin.Host.Services
                     endRow,
                     measurementRange,
                     averageRange,
-                    standardRange);
+                    standardRange,
+                    technicalRange);
 
                 if (RangesOverlap(errorRange, averageRange) ||
                     RangesOverlap(errorRange, standardRange))
@@ -120,7 +123,7 @@ namespace ExcelCalibrationAddin.Host.Services
                     errorRange = averageRange;
                 }
 
-                var technicalRange = FindDataRange(sheet, startRow, endRow, TechnicalKeywords)
+                technicalRange = technicalRange
                     ?? InferRangeFromLayout(sheet, headerBand, endRow, TechnicalKeywords, errorRange, averageRange, measurementRange);
 
                 if (RangesOverlap(technicalRange, measurementRange) ||

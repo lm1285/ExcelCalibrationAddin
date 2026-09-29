@@ -246,15 +246,14 @@ namespace ExcelCalibrationAddin.Host.Interop
             return matrix;
         }
 
-        private static List<CellRange> CaptureMergedRangesForCandidates(
+        private static List<CellRange> CaptureMergedRangesInScanAreas(
             dynamic worksheet,
-            IEnumerable<ScanArea> areas,
-            IEnumerable<CellAddress> candidates)
+            IEnumerable<ScanArea> areas)
         {
             var result = new List<CellRange>();
             foreach (var area in areas ?? Enumerable.Empty<ScanArea>())
             {
-                CaptureMergedRangesInArea(worksheet, area, candidates, result);
+                CaptureMergedRangesInArea(worksheet, area, result);
             }
             return result;
         }
@@ -262,7 +261,6 @@ namespace ExcelCalibrationAddin.Host.Interop
         private static void CaptureMergedRangesInArea(
             dynamic worksheet,
             ScanArea area,
-            IEnumerable<CellAddress> candidates,
             List<CellRange> result)
         {
             if (area == null || area.RowCount <= 0 || area.ColumnCount <= 0)
@@ -279,21 +277,29 @@ namespace ExcelCalibrationAddin.Host.Interop
                 return;
             }
 
-            foreach (var candidate in (candidates ?? Enumerable.Empty<CellAddress>()).Where(item =>
-                item.Row >= area.StartRow &&
-                item.Row <= area.EndRow &&
-                item.Column >= area.StartColumn &&
-                item.Column <= area.EndColumn))
+            for (var row = area.StartRow; row <= area.EndRow; row++)
             {
-                if (IsCoveredByMergedRange(result, candidate.Row, candidate.Column))
+                // Excel reports false for an unmerged row, while a mixed row is null.
+                dynamic rowRange = worksheet.Range[
+                    worksheet.Cells[row, area.StartColumn],
+                    worksheet.Cells[row, area.EndColumn]];
+                if (ReadMergeState(rowRange) == false)
                 {
                     continue;
                 }
 
-                var mergeRange = ReadMergeRange(worksheet, candidate.Row, candidate.Column);
-                if (mergeRange != null && !ContainsRange(result, mergeRange))
+                for (var column = area.StartColumn; column <= area.EndColumn; column++)
                 {
-                    result.Add(mergeRange);
+                    if (IsCoveredByMergedRange(result, row, column))
+                    {
+                        continue;
+                    }
+
+                    var mergeRange = ReadMergeRange(worksheet, row, column);
+                    if (mergeRange != null && !ContainsRange(result, mergeRange))
+                    {
+                        result.Add(mergeRange);
+                    }
                 }
             }
         }

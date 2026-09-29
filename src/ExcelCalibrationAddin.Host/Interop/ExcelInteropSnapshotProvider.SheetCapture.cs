@@ -42,7 +42,6 @@ namespace ExcelCalibrationAddin.Host.Interop
 
             totalCellCount = Math.Max(1, totalCellCount);
             var processedCellCount = 0;
-            var mergeCandidates = new List<CellAddress>();
             foreach (var area in scanAreas)
             {
                 dynamic scanRange = worksheet.Range[
@@ -64,11 +63,6 @@ namespace ExcelCalibrationAddin.Host.Interop
                         var displayText = SafeToString(displayValues[rowOffset, columnOffset]);
                         var text = ResolveCellText(displayText, rawValueText);
                         var formula = NormalizeFormula(formulas[rowOffset, columnOffset]);
-                        if (!string.IsNullOrWhiteSpace(rawValueText) ||
-                            !string.IsNullOrWhiteSpace(formula))
-                        {
-                            mergeCandidates.Add(new CellAddress(row, column));
-                        }
                         sheet.Cells.Add(new CellMeta
                         {
                             Row = row,
@@ -96,7 +90,7 @@ namespace ExcelCalibrationAddin.Host.Interop
             if (!CanUsePersistedMergeLayout() ||
                 !TryCapturePersistedMergedRanges(worksheet, out mergedRanges))
             {
-                mergedRanges = CaptureMergedRangesForCandidates(worksheet, scanAreas, mergeCandidates);
+                mergedRanges = CaptureMergedRangesInScanAreas(worksheet, scanAreas);
             }
             ApplyMergedRanges(sheet, mergedRanges);
             sheet.Headers.AddRange(BuildHeaderPaths(sheet));
@@ -112,7 +106,6 @@ namespace ExcelCalibrationAddin.Host.Interop
             };
 
             var scanAreas = new List<ScanArea>();
-            var mergeCandidates = new List<CellAddress>();
             foreach (var range in ranges)
             {
                 var rowCount = range.EndRow - range.StartRow + 1;
@@ -148,11 +141,6 @@ namespace ExcelCalibrationAddin.Host.Interop
                         var rawValueText = SafeToString(values[rowOffset, columnOffset]);
                         var displayText = SafeToString(displayValues[rowOffset, columnOffset]);
                         var formula = NormalizeFormula(formulas[rowOffset, columnOffset]);
-                        if (!string.IsNullOrWhiteSpace(rawValueText) ||
-                            !string.IsNullOrWhiteSpace(formula))
-                        {
-                            mergeCandidates.Add(new CellAddress(row, column));
-                        }
                         sheet.Cells.Add(new CellMeta
                         {
                             Row = row,
@@ -168,10 +156,11 @@ namespace ExcelCalibrationAddin.Host.Interop
                 }
             }
 
-            List<CellRange> mergedRanges;
-            if (!TryCapturePersistedMergedRanges(worksheet, out mergedRanges))
+            List<CellRange> mergedRanges = null;
+            if (!CanUsePersistedMergeLayout() ||
+                !TryCapturePersistedMergedRanges(worksheet, out mergedRanges))
             {
-                mergedRanges = CaptureMergedRangesForCandidates(worksheet, scanAreas, mergeCandidates);
+                mergedRanges = CaptureMergedRangesInScanAreas(worksheet, scanAreas);
             }
             ApplyMergedRanges(sheet, mergedRanges);
             sheet.Headers.AddRange(BuildHeaderPaths(sheet));

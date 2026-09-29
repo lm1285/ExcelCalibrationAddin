@@ -90,7 +90,20 @@ namespace ExcelCalibrationAddin.Host.Services
                 templatePattern = null;
             }
 
-            var errorType = displayedErrorType ?? templatePattern?.ErrorType ?? ResolveErrorType(unitSignals);
+            var resolvedUnit = ResolveRequirementUnit(rawText, unitSignals);
+            if (string.IsNullOrWhiteSpace(resolvedUnit))
+            {
+                resolvedUnit = templatePattern?.Unit ?? string.Empty;
+            }
+            if (string.IsNullOrWhiteSpace(resolvedUnit))
+            {
+                resolvedUnit = Generation.GenerationRuleValidator.ResolveUpperLimitUnit(rule);
+            }
+
+            var treatAsAbsoluteSeconds = resolvedUnit == "s";
+            var errorType = treatAsAbsoluteSeconds
+                ? ErrorType.Absolute
+                : displayedErrorType ?? templatePattern?.ErrorType ?? ResolveErrorType(unitSignals);
             var numberCandidates = ExtractNumberCandidates(rawText);
             if (numberCandidates.Count == 0)
             {
@@ -103,13 +116,18 @@ namespace ExcelCalibrationAddin.Host.Services
                 return null;
             }
 
-            var mpe = NormalizeMpeValue(selectedNumber.Value, errorType, rawText, numberFormat, unitSignals, templatePattern);
+            var scalePattern = treatAsAbsoluteSeconds ? null : templatePattern;
+            var mpe = treatAsAbsoluteSeconds
+                ? Math.Abs(selectedNumber.Value)
+                : NormalizeMpeValue(selectedNumber.Value, errorType, rawText, numberFormat, unitSignals, scalePattern);
             if (double.IsNaN(mpe) || double.IsInfinity(mpe) || mpe <= 0)
             {
                 return null;
             }
 
-            var toleranceRange = ResolveToleranceRange(rawText, errorType, numberFormat, unitSignals, templatePattern);
+            var toleranceRange = treatAsAbsoluteSeconds
+                ? (negative: (double?)null, positive: (double?)null)
+                : ResolveToleranceRange(rawText, errorType, numberFormat, unitSignals, scalePattern);
             var resolvedOperator = requirement.Operator != TechnicalRequirementOperator.None
                 ? requirement.Operator
                 : templatePattern?.Operator ?? TechnicalRequirementOperator.None;
@@ -117,19 +135,12 @@ namespace ExcelCalibrationAddin.Host.Services
             {
                 resolvedOperator = Generation.GenerationRuleValidator.InferOperatorFromResultFormula(rule);
             }
-            var resolvedUnit = ResolveRequirementUnit(rawText, unitSignals);
-            if (string.IsNullOrWhiteSpace(resolvedUnit))
-            {
-                resolvedUnit = templatePattern?.Unit ?? string.Empty;
-            }
-            if (string.IsNullOrWhiteSpace(resolvedUnit))
-            {
-                resolvedUnit = Generation.GenerationRuleValidator.ResolveUpperLimitUnit(rule);
-            }
             var valuePattern = MpeValuePatternCodec.Build(
                 errorType,
-                templatePattern?.ScaleFactor ??
-                    ResolveMpeScaleFactor(selectedNumber.Value, errorType, rawText, numberFormat, unitSignals),
+                treatAsAbsoluteSeconds
+                    ? 1d
+                    : scalePattern?.ScaleFactor ??
+                        ResolveMpeScaleFactor(selectedNumber.Value, errorType, rawText, numberFormat, unitSignals),
                 resolvedOperator,
                 resolvedUnit);
 
@@ -167,7 +178,11 @@ namespace ExcelCalibrationAddin.Host.Services
         private static IEnumerable<string> CollectTemplateUnitSignals(MeasurementRule rule)
         {
             var regions = rule?.TemplateDefinition?.Regions ?? new List<TemplateRegionDefinition>();
-            foreach (var region in regions.Where(item => item != null))
+            foreach (var region in regions.Where(item =>
+                item != null &&
+                (item.Role == TemplateRegionRole.TechnicalRequirement ||
+                 item.Role == TemplateRegionRole.MeasurementValue ||
+                 item.Role == TemplateRegionRole.AverageValue)))
             {
                 yield return region.Unit;
                 foreach (var unit in region.Units ?? new List<string>())

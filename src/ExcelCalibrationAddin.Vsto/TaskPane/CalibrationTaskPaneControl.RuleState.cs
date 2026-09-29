@@ -40,8 +40,11 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 			val2.MpeSource = TaskPaneModelCloner.BuildParameterSource(val2.MpeSource, "技术要求", val.TechnicalRequirementRange);
 			val2.RangeSource = TaskPaneModelCloner.BuildParameterSource(val2.RangeSource, "量程", val.RangeValueRange);
 			val2.UncertaintySource = TaskPaneModelCloner.BuildParameterSource(val2.UncertaintySource, "不确定度", val.UncertaintyRange);
-				val2.ResultSource = TaskPaneModelCloner.BuildParameterSource(val2.ResultSource, "结论", val.ResultRange);
+			val2.ResultSource = TaskPaneModelCloner.BuildParameterSource(val2.ResultSource, "结论", val.ResultRange);
 				val2.AdditionalJudgementConstraints = MeasurementRuleCloner.CloneJudgementConstraints(val.AdditionalJudgementConstraints);
+				// The current workbook mapping is authoritative. A stale error from a
+				// cached/saved rule must not survive after recognition or manual remapping.
+				val2.RecognitionError = val.RecognitionError ?? string.Empty;
 				if (val2.TargetRange != null)
 			{
 				val2.GroupSize = ResolveGroupSize(val2);
@@ -148,6 +151,7 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 			}
 			val.AdditionalJudgementConstraints[additionalIndex] = constraint;
 			rule.AdditionalJudgementConstraints = MeasurementRuleCloner.CloneJudgementConstraints(val.AdditionalJudgementConstraints);
+			RefreshRecognitionError(rowIndex);
 			return;
 		}
 		switch (columnName)
@@ -234,6 +238,45 @@ namespace ExcelCalibrationAddin.Vsto.TaskPane
 			UpdateTemplateDefinitionRegion(rowIndex, TemplateRegionRole.Result, val2);
 			break;
 		}
+		RefreshRecognitionError(rowIndex);
+	}
+
+	private void RefreshRecognitionError(int rowIndex)
+	{
+		if (rowIndex < 0 || rowIndex >= _currentMappings.Count)
+		{
+			return;
+		}
+
+		var mapping = _currentMappings[rowIndex];
+		var rule = GetRule(rowIndex);
+		if (mapping == null || rule == null)
+		{
+			return;
+		}
+
+		var message = !string.IsNullOrWhiteSpace(rule.RecognitionError)
+			? rule.RecognitionError
+			: mapping.RecognitionError;
+		if (string.IsNullOrWhiteSpace(message))
+		{
+			return;
+		}
+
+		var errorCount = (mapping.ErrorValueRange == null ? 0 : 1) +
+			(mapping.AdditionalJudgementConstraints ?? new List<MeasurementJudgementConstraint>())
+				.Count(item => item?.ErrorSource?.Range != null);
+		var mpeCount = (mapping.TechnicalRequirementRange == null ? 0 : 1) +
+			(mapping.AdditionalJudgementConstraints ?? new List<MeasurementJudgementConstraint>())
+				.Count(item => item?.MpeSource?.Range != null);
+		if (errorCount == mpeCount && message.IndexOf("同一校准项内误差区域(", StringComparison.Ordinal) >= 0)
+		{
+			message = string.Join("；", message.Split(new[] { '；' }, StringSplitOptions.RemoveEmptyEntries)
+				.Where(item => item.IndexOf("同一校准项内误差区域(", StringComparison.Ordinal) < 0));
+		}
+
+		mapping.RecognitionError = message;
+		rule.RecognitionError = message;
 	}
 
 	private void UpdateTemplateDefinitionRegion(int rowIndex, TemplateRegionRole role, CellRange range)

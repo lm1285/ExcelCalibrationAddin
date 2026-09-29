@@ -125,6 +125,19 @@ namespace ExcelCalibrationAddin.Core.Tests
         }
 
         [TestMethod]
+        public void FingerprintIgnoresMeasurementNumberFormatPrecision()
+        {
+            var first = BuildSnapshot(10, 11);
+            var second = BuildSnapshot(10, 11);
+            first.Sheets[0].Cells[4].NumberFormat = "0.0";
+            second.Sheets[0].Cells[4].NumberFormat = "0.0000";
+
+            var builder = new TemplateFingerprintBuilder();
+
+            Assert.AreEqual(builder.Build(first).ExactFingerprint, builder.Build(second).ExactFingerprint);
+        }
+
+        [TestMethod]
         public void FingerprintIgnoresFormulaAndItsCalculatedResult()
         {
             var first = BuildSnapshot(10, 11);
@@ -366,6 +379,36 @@ namespace ExcelCalibrationAddin.Core.Tests
 
             Assert.IsFalse(TemplateFieldDefinitionMatcher.IsCompatible(saved, current));
             Assert.IsTrue(TemplateFieldDefinitionMatcher.IsCompatible(saved, TemplateDefinitionCloner.Clone(saved)));
+        }
+
+        [TestMethod]
+        public void TemplateDefinitionMatcherAcceptsPersistedLayoutOnlyDefinition()
+        {
+            var snapshot = BuildTemplateDefinitionSnapshot();
+            var mapping = BuildTemplateDefinitionMapping();
+            var builder = new TemplateFieldDefinitionBuilder(new NumberFormatInterpreter());
+            var saved = builder.Build(snapshot.Sheets[0], mapping);
+            foreach (var header in saved.Headers)
+            {
+                header.Text = string.Empty;
+                header.Unit = string.Empty;
+                header.NumberFormat = string.Empty;
+            }
+            foreach (var region in saved.Regions)
+            {
+                region.HeaderPath = new List<string>();
+                region.Unit = string.Empty;
+                region.Units = new List<string>();
+                region.NumberFormat = string.Empty;
+                region.Formula = null;
+                region.FormulaVariants = new List<TemplateFormulaDefinition>();
+                region.RequirementValues = new List<TemplateRequirementValue>();
+                region.OperatorRange = null;
+                region.ValueRange = null;
+            }
+
+            var current = builder.Build(snapshot.Sheets[0], mapping);
+            Assert.IsTrue(TemplateFieldDefinitionMatcher.IsCompatible(saved, current));
         }
 
         [TestMethod]
@@ -1183,6 +1226,40 @@ namespace ExcelCalibrationAddin.Core.Tests
 
             Assert.AreEqual(1, fields.Count);
             Assert.AreEqual(5, fields[0].Range.StartRow);
+        }
+
+        [TestMethod]
+        public void FieldMatcherKeepsChineseTopLevelTitlesWhenTitleRowHasParameters()
+        {
+            var sheet = new SheetSnapshot
+            {
+                Name = "原始记录",
+                Cells = new List<CellMeta>
+                {
+                    new CellMeta { Row = 4, Column = 1, Text = "四、报警功能及报警动作值" },
+                    new CellMeta { Row = 5, Column = 1, Text = "报警功能", IsMerged = true, MergeRange = new CellRange { SheetName = "原始记录", StartRow = 5, EndRow = 5, StartColumn = 1, EndColumn = 7 } },
+                    new CellMeta { Row = 5, Column = 8, Text = "实测报警值（%LEL）" },
+                    new CellMeta { Row = 7, Column = 1, Text = "五、示值误差：" },
+                    new CellMeta { Row = 7, Column = 18, Text = "量程：" },
+                    new CellMeta { Row = 7, Column = 21, Text = "3" },
+                    new CellMeta { Row = 8, Column = 1, Text = "标气浓度值（%）" },
+                    new CellMeta { Row = 8, Column = 8, Text = "测量值（%LEL）" },
+                    new CellMeta { Row = 8, Column = 20, Text = "示值误差(%FS)" },
+                    new CellMeta { Row = 13, Column = 1, Text = "六、重复性：" }
+                }
+            };
+
+            var fields = new FieldMatcher().MatchMeasurementFields(sheet);
+
+            Assert.AreEqual(3, fields.Count);
+            Assert.AreEqual("四、报警功能及报警动作值", fields[0].Alias);
+            Assert.AreEqual(4, fields[0].Range.StartRow);
+            Assert.AreEqual(6, fields[0].Range.EndRow);
+            Assert.AreEqual("五、示值误差", fields[1].Alias);
+            Assert.AreEqual(7, fields[1].Range.StartRow);
+            Assert.AreEqual(12, fields[1].Range.EndRow);
+            Assert.AreEqual("六、重复性", fields[2].Alias);
+            Assert.IsFalse(fields.Any(field => field.Alias == "报警功能"));
         }
 
         [TestMethod]
